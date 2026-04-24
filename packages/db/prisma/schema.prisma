@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Repository {
+  id            String   @id @default(cuid())
+  githubUrl     String   @unique
+  owner         String
+  name          String
+  status        String   @default("pending") // pending | indexing | ready | failed
+  lastSyncedAt  DateTime?
+  webhookSecret String?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  commits       Commit[]
+  pullRequests  PullRequest[]
+  issues        Issue[]
+  codeFiles     CodeFile[]
+  contributors  Contributor[]
+  ingestionJobs IngestionJob[]
+}
+
+model Commit {
+  id           String     @id @default(cuid())
+  repoId       String
+  sha          String
+  message      String
+  author       String
+  timestamp    DateTime
+  filesChanged Json?
+  createdAt    DateTime   @default(now())
+
+  repo         Repository @relation(fields: [repoId], references: [id])
+
+  @@unique([repoId, sha])
+}
+
+model PullRequest {
+  id          String     @id @default(cuid())
+  repoId      String
+  number      Int
+  title       String
+  body        String?
+  author      String
+  status      String
+  diff        String?    @db.Text
+  riskScore   Float?
+  summary     String?    @db.Text
+  metadata    Json?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  repo        Repository @relation(fields: [repoId], references: [id])
+
+  @@unique([repoId, number])
+}
+
+model Issue {
+  id        String     @id @default(cuid())
+  repoId    String
+  number    Int
+  title     String
+  body      String?    @db.Text
+  labels    Json?
+  cluster   String?
+  createdAt DateTime   @default(now())
+
+  repo      Repository @relation(fields: [repoId], references: [id])
+
+  @@unique([repoId, number])
+}
+
+model CodeFile {
+  id           String          @id @default(cuid())
+  repoId       String
+  path         String
+  language     String?
+  content      String?         @db.Text
+  lastModified DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  repo         Repository      @relation(fields: [repoId], references: [id])
+  astNodes     ASTNode[]
+  chunks       EmbeddingChunk[]
+
+  @@unique([repoId, path])
+}
+
+model ASTNode {
+  id        String   @id @default(cuid())
+  fileId    String
+  type      String   // function | class | import | export | interface | route
+  name      String?
+  startLine Int?
+  endLine   Int?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  file      CodeFile @relation(fields: [fileId], references: [id])
+}
+
+model DependencyEdge {
+  id       String @id @default(cuid())
+  repoId   String
+  fromFile String
+  toFile   String
+  type     String // import | export | call
+
+  @@unique([repoId, fromFile, toFile, type])
+}
+
+model Contributor {
+  id           String     @id @default(cuid())
+  repoId       String
+  login        String
+  commitCount  Int        @default(0)
+  linesAdded   Int        @default(0)
+  linesRemoved Int        @default(0)
+  ownedFiles   Json?
+  metadata     Json?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  repo         Repository @relation(fields: [repoId], references: [id])
+
+  @@unique([repoId, login])
+}
+
+model EmbeddingChunk {
+  id            String   @id @default(cuid())
+  fileId        String
+  chunkIndex    Int
+  content       String   @db.Text
+  qdrantPointId String?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  file          CodeFile @relation(fields: [fileId], references: [id])
+
+  @@unique([fileId, chunkIndex])
+}
+
+model IngestionJob {
+  id          String     @id @default(cuid())
+  repoId      String
+  status      String     @default("pending") // pending | running | completed | failed
+  startedAt   DateTime?
+  completedAt DateTime?
+  error       String?
+  metadata    Json?
+  createdAt   DateTime   @default(now())
+
+  repo        Repository @relation(fields: [repoId], references: [id])
+}
+
+model RetrievalLog {
+  id        String   @id @default(cuid())
+  query     String
+  repoId    String?
+  results   Json?
+  latencyMs Int?
+  strategy  String?
+  createdAt DateTime @default(now())
+}
