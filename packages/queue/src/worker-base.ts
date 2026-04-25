@@ -7,6 +7,10 @@ const logger = pino({ name: "gitpulse-queue" });
 
 type MetricOutcome = "success" | "failure";
 
+const errorMessage = (error: Error): string => {
+  return error.message.length > 0 ? error.message : error.name;
+};
+
 export abstract class WorkerBase<TJobData extends object> {
   protected readonly worker: Worker<TJobData>;
   protected readonly logger = logger;
@@ -36,7 +40,7 @@ export abstract class WorkerBase<TJobData extends object> {
       this.logger.error(
         {
           queue: queueName,
-          error: error.message
+          error: errorMessage(error)
         },
         "worker error"
       );
