@@ -1,5 +1,5 @@
 {
-  "name": "@gitpulse/queue",
+  "name": "@gitpulse/ingestion",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -17,10 +17,15 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@gitpulse/db": "workspace:*",
+    "@gitpulse/queue": "workspace:*",
+    "@octokit/rest": "^21.1.1",
     "bullmq": "^5.34.7",
+    "express": "^4.21.2",
     "pino": "^9.6.0"
   },
   "devDependencies": {
+    "@types/express": "^5.0.0",
     "@types/node": "^22.10.2"
   }
 }

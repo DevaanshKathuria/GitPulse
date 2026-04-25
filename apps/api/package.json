@@ -11,7 +11,12 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "express": "^4.21.2"
+    "@gitpulse/db": "workspace:*",
+    "@gitpulse/ingestion": "workspace:*",
+    "@gitpulse/queue": "workspace:*",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

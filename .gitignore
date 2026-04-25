@@ -1,8 +1,10 @@
 node_modules
 .next
+.turbo
 dist
 .env
 *.log
+*.tsbuildinfo
 coverage
 postgres_data
 qdrant_data
