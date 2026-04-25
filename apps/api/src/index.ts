@@ -5,14 +5,15 @@ import express, {
   type Request,
   type Response
 } from "express";
-import type { IncomingMessage } from "node:http";
+import type { IncomingMessage, Server } from "node:http";
 import { AppError } from "./errors.js";
 import { reposRouter } from "./routes/repos.js";
 import { githubWebhookRouter } from "@gitpulse/ingestion";
 import { shutdownWorkers, startWorkers } from "./workers.js";
 
 const app = express();
-const port = Number(process.env.PORT ?? 3001);
+const requestedPort = Number(process.env.PORT ?? 3001);
+const maxPortAttempts = 10;
 
 app.use(
   express.json({
@@ -49,10 +50,66 @@ const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => 
 
 app.use(errorHandler);
 
-startWorkers();
+const isListenError = (error: unknown): error is Error & { code: string } => {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    typeof (error as { code: unknown }).code === "string"
+  );
+};
 
-const server = app.listen(port, () => {
-  console.log(`API server listening on port ${port}`);
+const listen = async (port: number): Promise<Server> => {
+  await shutdownWorkers();
+
+  return new Promise((resolve, reject) => {
+    const server = app.listen(port);
+
+    server.once("listening", () => {
+      resolve(server);
+    });
+
+    server.once("error", (error) => {
+      reject(error);
+    });
+  });
+};
+
+const startServer = async (): Promise<{ server: Server; port: number }> => {
+  for (let attempt = 0; attempt < maxPortAttempts; attempt += 1) {
+    const port = requestedPort + attempt;
+
+    try {
+      return {
+        server: await listen(port),
+        port
+      };
+    } catch (error: unknown) {
+      if (isListenError(error) && error.code === "EADDRINUSE") {
+        console.warn(`Port ${port} is already in use, trying ${port + 1}.`);
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw new Error(
+    `No available API port found from ${requestedPort} to ${
+      requestedPort + maxPortAttempts - 1
+    }`
+  );
+};
+
+const { server, port } = await startServer();
+
+startWorkers();
+console.log(`API server listening on port ${port}`);
+
+server.on("error", (error) => {
+  console.error(error);
+  void shutdownWorkers().finally(() => {
+    process.exit(1);
+  });
 });
 
 const shutdown = async (): Promise<void> => {

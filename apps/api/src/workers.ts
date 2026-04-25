@@ -3,12 +3,19 @@ import {
   IngestionWorker
 } from "@gitpulse/ingestion";
 
-const workers = [new IngestionWorker(), new FileParsingStubWorker()];
+type ManagedWorker = IngestionWorker | FileParsingStubWorker;
+
+let workers: ManagedWorker[] = [];
 
 export const startWorkers = (): void => {
-  void workers;
+  if (workers.length > 0) {
+    return;
+  }
+
+  workers = [new IngestionWorker(), new FileParsingStubWorker()];
 };
 
 export const shutdownWorkers = async (): Promise<void> => {
   await Promise.all(workers.map((worker) => worker.close()));
+  workers = [];
 };
