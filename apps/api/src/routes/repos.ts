@@ -1,10 +1,38 @@
 import { prisma } from "@gitpulse/db";
+import { DependencyGraphBuilder } from "@gitpulse/parser";
 import { repoIngestionQueue } from "@gitpulse/queue";
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { AppError } from "../errors.js";
+import { redis } from "../redis.js";
 
 export const reposRouter = Router();
+const architectureCacheTtlSeconds = 60 * 60;
+
+const getCachedArchitecture = async (cacheKey: string): Promise<unknown | null> => {
+  try {
+    const cached = await redis.get(cacheKey);
+    return cached === null ? null : (JSON.parse(cached) as unknown);
+  } catch {
+    return null;
+  }
+};
+
+const setCachedArchitecture = async (
+  cacheKey: string,
+  body: unknown
+): Promise<void> => {
+  try {
+    await redis.set(
+      cacheKey,
+      JSON.stringify(body),
+      "EX",
+      architectureCacheTtlSeconds
+    );
+  } catch {
+    return;
+  }
+};
 
 const createRepoSchema = z.object({
   githubUrl: z
@@ -94,6 +122,34 @@ reposRouter.get(
         ingestionJobs: undefined
       }))
     );
+  }
+);
+
+reposRouter.get(
+  "/api/v1/repos/:id/architecture",
+  async (request: Request, response: Response): Promise<void> => {
+    const repoId = getRouteParam(request.params.id);
+    const cacheKey = `gitpulse:arch:${repoId}`;
+    const cached = await getCachedArchitecture(cacheKey);
+
+    if (cached !== null) {
+      response.status(200).json(cached);
+      return;
+    }
+
+    const graph = await new DependencyGraphBuilder().buildForRepo(repoId);
+    const body = {
+      ...graph,
+      stats: {
+        totalFiles: graph.nodes.length,
+        totalEdges: graph.edges.length,
+        circularCount: graph.circularDependencies.length,
+        unusedCount: graph.unusedFiles.length
+      }
+    };
+
+    await setCachedArchitecture(cacheKey, body);
+    response.status(200).json(body);
   }
 );
 

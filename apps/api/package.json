@@ -13,9 +13,11 @@
   "dependencies": {
     "@gitpulse/db": "workspace:*",
     "@gitpulse/ingestion": "workspace:*",
+    "@gitpulse/parser": "workspace:*",
     "@gitpulse/queue": "workspace:*",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "ioredis": "^5.10.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {
