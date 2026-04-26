@@ -18,12 +18,14 @@ export const startWorkers = async (): Promise<void> => {
     return;
   }
 
-  const [{ IngestionWorker }, { FileParsingWorker }] = await Promise.all([
+  const [{ IngestionWorker }, { FileParsingWorker }, { EmbeddingWorker }] =
+    await Promise.all([
     import("@gitpulse/ingestion"),
-    import("@gitpulse/parser")
+    import("@gitpulse/parser"),
+    import("@gitpulse/retrieval")
   ]);
 
-  workers = [new IngestionWorker(), new FileParsingWorker()];
+  workers = [new IngestionWorker(), new FileParsingWorker(), new EmbeddingWorker()];
 };
 
 export const shutdownWorkers = async (): Promise<void> => {
