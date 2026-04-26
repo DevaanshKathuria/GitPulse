@@ -8,6 +8,7 @@ import express, {
 import type { IncomingMessage, Server } from "node:http";
 import { AppError } from "./errors.js";
 import { reposRouter } from "./routes/repos.js";
+import { searchRouter } from "./routes/search.js";
 import { githubWebhookRouter } from "@gitpulse/ingestion";
 import { shutdownWorkers, startWorkers } from "./workers.js";
 
@@ -31,6 +32,7 @@ app.get("/health", (_request: Request, response: Response) => {
 });
 
 app.use(reposRouter);
+app.use(searchRouter);
 app.use(githubWebhookRouter);
 
 app.use((_request: Request, _response: Response, next: NextFunction) => {
