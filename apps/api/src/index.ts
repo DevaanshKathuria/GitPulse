@@ -102,7 +102,7 @@ const startServer = async (): Promise<{ server: Server; port: number }> => {
 
 const { server, port } = await startServer();
 
-startWorkers();
+await startWorkers();
 console.log(`API server listening on port ${port}`);
 
 server.on("error", (error) => {

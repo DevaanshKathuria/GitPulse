@@ -1,6 +1,6 @@
 import { prisma } from "@gitpulse/db";
 import {
-  embeddingGenerationQueue,
+  getEmbeddingGenerationQueue,
   QUEUES,
   WorkerBase,
   type FileParsingJob
@@ -44,7 +44,7 @@ export class FileParsingWorker extends WorkerBase<FileParsingJob> {
       language
     );
 
-    await embeddingGenerationQueue.add("generate-embeddings", {
+    await getEmbeddingGenerationQueue().add("generate-embeddings", {
       repoId: job.data.repoId,
       fileId: codeFile.id,
       chunkCount: 0

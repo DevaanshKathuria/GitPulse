@@ -1,7 +1,7 @@
 import { prisma } from "@gitpulse/db";
 import {
-  contributorAnalysisQueue,
-  fileParsingQueue
+  getContributorAnalysisQueue,
+  getFileParsingQueue
 } from "@gitpulse/queue";
 import { redisConnection } from "@gitpulse/queue";
 import { Redis } from "ioredis";
@@ -9,15 +9,30 @@ import pino from "pino";
 import { GitHubClient, type GitHubIssue, type GitHubPullRequest } from "./github-client.js";
 
 const logger = pino({ name: "gitpulse-ingestion" });
-const redis = new Redis(redisConnection);
+let redis: Redis | null = null;
 
-redis.on("error", (error) => {
-  logger.warn({ error: error.message }, "redis cache unavailable");
-});
+const getRedis = (): Redis => {
+  redis ??= new Redis({
+    ...redisConnection,
+    enableOfflineQueue: false,
+    lazyConnect: true,
+    maxRetriesPerRequest: 1,
+    retryStrategy: () => null
+  });
+
+  redis.on("error", (error) => {
+    logger.warn(
+      { error: error.message || error.name || "connection failed" },
+      "redis cache unavailable"
+    );
+  });
+
+  return redis;
+};
 
 const invalidateArchitectureCache = async (repoId: string): Promise<void> => {
   try {
-    await redis.del(`gitpulse:arch:${repoId}`);
+    await getRedis().del(`gitpulse:arch:${repoId}`);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown Redis error";
     logger.warn({ repoId, error: message }, "failed to invalidate architecture cache");
@@ -178,7 +193,7 @@ export class IngestionService {
       });
 
       await invalidateArchitectureCache(repoId);
-      await contributorAnalysisQueue.add("analyze-contributors", { repoId });
+      await getContributorAnalysisQueue().add("analyze-contributors", { repoId });
     } catch (error: unknown) {
       const message = errorMessage(error);
       logger.error({ repoId, githubUrl, error: message }, "ingestion failed");
@@ -387,7 +402,7 @@ export class IngestionService {
         }
       });
 
-      await fileParsingQueue.add("parse-file", {
+      await getFileParsingQueue().add("parse-file", {
         repoId,
         fileId: codeFile.id,
         path: file.path,

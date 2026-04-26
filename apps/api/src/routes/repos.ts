@@ -1,6 +1,6 @@
 import { prisma } from "@gitpulse/db";
 import { DependencyGraphBuilder } from "@gitpulse/parser";
-import { repoIngestionQueue } from "@gitpulse/queue";
+import { getRepoIngestionQueue } from "@gitpulse/queue";
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { AppError } from "../errors.js";
@@ -92,7 +92,7 @@ reposRouter.post(
       }
     });
 
-    await repoIngestionQueue.add("ingest-repo", {
+    await getRepoIngestionQueue().add("ingest-repo", {
       repoId: repository.id,
       githubUrl: repository.githubUrl,
       isIncremental: false
@@ -204,7 +204,7 @@ reposRouter.post(
       throw new AppError("Repository not found", 404);
     }
 
-    await repoIngestionQueue.add("ingest-repo", {
+    await getRepoIngestionQueue().add("ingest-repo", {
       repoId: repository.id,
       githubUrl: repository.githubUrl,
       isIncremental: true
