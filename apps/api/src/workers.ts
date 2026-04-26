@@ -1,9 +1,9 @@
 import {
-  FileParsingStubWorker,
   IngestionWorker
 } from "@gitpulse/ingestion";
+import { FileParsingWorker } from "@gitpulse/parser";
 
-type ManagedWorker = IngestionWorker | FileParsingStubWorker;
+type ManagedWorker = IngestionWorker | FileParsingWorker;
 
 let workers: ManagedWorker[] = [];
 
@@ -12,7 +12,7 @@ export const startWorkers = (): void => {
     return;
   }
 
-  workers = [new IngestionWorker(), new FileParsingStubWorker()];
+  workers = [new IngestionWorker(), new FileParsingWorker()];
 };
 
 export const shutdownWorkers = async (): Promise<void> => {

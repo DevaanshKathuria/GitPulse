@@ -3,10 +3,26 @@ import {
   contributorAnalysisQueue,
   fileParsingQueue
 } from "@gitpulse/queue";
+import { redisConnection } from "@gitpulse/queue";
+import { Redis } from "ioredis";
 import pino from "pino";
 import { GitHubClient, type GitHubIssue, type GitHubPullRequest } from "./github-client.js";
 
 const logger = pino({ name: "gitpulse-ingestion" });
+const redis = new Redis(redisConnection);
+
+redis.on("error", (error) => {
+  logger.warn({ error: error.message }, "redis cache unavailable");
+});
+
+const invalidateArchitectureCache = async (repoId: string): Promise<void> => {
+  try {
+    await redis.del(`gitpulse:arch:${repoId}`);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown Redis error";
+    logger.warn({ repoId, error: message }, "failed to invalidate architecture cache");
+  }
+};
 const MAX_FILE_BYTES = 500 * 1024;
 
 interface ParsedGitHubUrl {
@@ -161,6 +177,7 @@ export class IngestionService {
         }
       });
 
+      await invalidateArchitectureCache(repoId);
       await contributorAnalysisQueue.add("analyze-contributors", { repoId });
     } catch (error: unknown) {
       const message = errorMessage(error);
