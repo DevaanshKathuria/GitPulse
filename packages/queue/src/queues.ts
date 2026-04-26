@@ -20,12 +20,13 @@ export const QUEUES = {
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 
 const logger = pino({ name: "gitpulse-queue" });
+const queues = new Map<QueueName, Queue<object>>();
 
 const errorMessage = (error: Error): string => {
   return error.message.length > 0 ? error.message : error.name;
 };
 
-const attachQueueErrorLogger = <TJobData>(
+const attachQueueErrorLogger = <TJobData extends object>(
   queue: Queue<TJobData>,
   queueName: QueueName
 ): Queue<TJobData> => {
@@ -42,57 +43,40 @@ const attachQueueErrorLogger = <TJobData>(
   return queue;
 };
 
-export const repoIngestionQueue = new Queue<RepoIngestionJob>(
-  QUEUES.REPO_INGESTION,
-  {
-    connection: redisConnection,
-    defaultJobOptions
+const getQueue = <TJobData extends object>(queueName: QueueName): Queue<TJobData> => {
+  const existingQueue = queues.get(queueName);
+
+  if (existingQueue !== undefined) {
+    return existingQueue as unknown as Queue<TJobData>;
   }
-);
-attachQueueErrorLogger(repoIngestionQueue, QUEUES.REPO_INGESTION);
 
-export const fileParsingQueue = new Queue<FileParsingJob>(QUEUES.FILE_PARSING, {
-  connection: redisConnection,
-  defaultJobOptions
-});
-attachQueueErrorLogger(fileParsingQueue, QUEUES.FILE_PARSING);
+  const queue = attachQueueErrorLogger(
+    new Queue<TJobData>(queueName, {
+      connection: redisConnection,
+      defaultJobOptions
+    }),
+    queueName
+  );
+  queues.set(queueName, queue as unknown as Queue<object>);
+  return queue;
+};
 
-export const embeddingGenerationQueue = new Queue<EmbeddingJob>(
-  QUEUES.EMBEDDING_GENERATION,
-  {
-    connection: redisConnection,
-    defaultJobOptions
-  }
-);
-attachQueueErrorLogger(
-  embeddingGenerationQueue,
-  QUEUES.EMBEDDING_GENERATION
-);
+export const getRepoIngestionQueue = (): Queue<RepoIngestionJob> =>
+  getQueue<RepoIngestionJob>(QUEUES.REPO_INGESTION);
 
-export const prAnalysisQueue = new Queue<PRAnalysisJob>(QUEUES.PR_ANALYSIS, {
-  connection: redisConnection,
-  defaultJobOptions
-});
-attachQueueErrorLogger(prAnalysisQueue, QUEUES.PR_ANALYSIS);
+export const getFileParsingQueue = (): Queue<FileParsingJob> =>
+  getQueue<FileParsingJob>(QUEUES.FILE_PARSING);
 
-export const contributorAnalysisQueue = new Queue<ContributorAnalysisJob>(
-  QUEUES.CONTRIBUTOR_ANALYSIS,
-  {
-    connection: redisConnection,
-    defaultJobOptions
-  }
-);
-attachQueueErrorLogger(
-  contributorAnalysisQueue,
-  QUEUES.CONTRIBUTOR_ANALYSIS
-);
+export const getEmbeddingGenerationQueue = (): Queue<EmbeddingJob> =>
+  getQueue<EmbeddingJob>(QUEUES.EMBEDDING_GENERATION);
+
+export const getPrAnalysisQueue = (): Queue<PRAnalysisJob> =>
+  getQueue<PRAnalysisJob>(QUEUES.PR_ANALYSIS);
+
+export const getContributorAnalysisQueue = (): Queue<ContributorAnalysisJob> =>
+  getQueue<ContributorAnalysisJob>(QUEUES.CONTRIBUTOR_ANALYSIS);
 
 export const closeQueues = async (): Promise<void> => {
-  await Promise.all([
-    repoIngestionQueue.close(),
-    fileParsingQueue.close(),
-    embeddingGenerationQueue.close(),
-    prAnalysisQueue.close(),
-    contributorAnalysisQueue.close()
-  ]);
+  await Promise.all([...queues.values()].map((queue) => queue.close()));
+  queues.clear();
 };

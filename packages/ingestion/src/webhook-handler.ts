@@ -1,7 +1,7 @@
 import { prisma } from "@gitpulse/db";
 import {
-  prAnalysisQueue,
-  repoIngestionQueue
+  getPrAnalysisQueue,
+  getRepoIngestionQueue
 } from "@gitpulse/queue";
 import { Router, type Request, type Response, type Router as ExpressRouter } from "express";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -61,7 +61,7 @@ githubWebhookRouter.post(
     const event = request.header("x-github-event");
 
     if (event === "push") {
-      await repoIngestionQueue.add("ingest-repo", {
+      await getRepoIngestionQueue().add("ingest-repo", {
         repoId: repository.id,
         githubUrl: repository.githubUrl,
         isIncremental: true
@@ -73,7 +73,7 @@ githubWebhookRouter.post(
       (payload.action === "opened" || payload.action === "synchronize") &&
       payload.pull_request?.number !== undefined
     ) {
-      await prAnalysisQueue.add("analyze-pr", {
+      await getPrAnalysisQueue().add("analyze-pr", {
         repoId: repository.id,
         prId: String(payload.pull_request.number),
         prNumber: payload.pull_request.number
