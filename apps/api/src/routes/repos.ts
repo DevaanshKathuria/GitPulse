@@ -1,10 +1,15 @@
 import { prisma } from "@gitpulse/db";
 import { DependencyGraphBuilder } from "@gitpulse/parser";
-import { getRepoIngestionQueue } from "@gitpulse/queue";
+import {
+  getContributorAnalysisQueue,
+  getPrAnalysisQueue,
+  getRepoIngestionQueue
+} from "@gitpulse/queue";
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { AppError } from "../errors.js";
 import { redis } from "../redis.js";
+import { ContributorIntelligenceService } from "../services/contributor-intelligence.js";
 
 export const reposRouter = Router();
 const architectureCacheTtlSeconds = 60 * 60;
@@ -64,6 +69,82 @@ const getRouteParam = (value: string | string[] | undefined): string => {
   }
 
   return value;
+};
+
+const firstQueryValue = (value: unknown): string | undefined => {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value) && typeof value[0] === "string") {
+    return value[0];
+  }
+
+  return undefined;
+};
+
+const parsePositiveInteger = (
+  value: unknown,
+  fallback: number,
+  max = 100
+): number => {
+  const raw = firstQueryValue(value);
+  if (raw === undefined) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.min(parsed, max);
+};
+
+const isObject = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+
+const breakingChangesFromMetadata = (metadata: unknown): unknown[] => {
+  if (!isObject(metadata) || !Array.isArray(metadata.breakingChanges)) {
+    return [];
+  }
+
+  return metadata.breakingChanges;
+};
+
+const ownedFilesCount = (ownedFiles: unknown): number => {
+  return Array.isArray(ownedFiles) ? ownedFiles.length : 0;
+};
+
+const contributorAnalyticsFromMetadata = (
+  metadata: unknown
+): {
+  overall: number;
+  byDirectory: Record<string, { busFactor: number; owners: string[] }>;
+  risks: unknown[];
+} | null => {
+  if (!isObject(metadata) || !isObject(metadata.contributorAnalytics)) {
+    return null;
+  }
+
+  const analytics = metadata.contributorAnalytics;
+  if (
+    typeof analytics.overall !== "number" ||
+    !isObject(analytics.byDirectory) ||
+    !Array.isArray(analytics.risks)
+  ) {
+    return null;
+  }
+
+  return {
+    overall: analytics.overall,
+    byDirectory: analytics.byDirectory as Record<
+      string,
+      { busFactor: number; owners: string[] }
+    >,
+    risks: analytics.risks
+  };
 };
 
 reposRouter.post(
@@ -150,6 +231,145 @@ reposRouter.get(
 
     await setCachedArchitecture(cacheKey, body);
     response.status(200).json(body);
+  }
+);
+
+reposRouter.get(
+  "/api/v1/repos/:id/prs",
+  async (request: Request, response: Response): Promise<void> => {
+    const repoId = getRouteParam(request.params.id);
+    const page = parsePositiveInteger(request.query.page, 1);
+    const limit = parsePositiveInteger(request.query.limit, 20);
+    const pullRequests = await prisma.pullRequest.findMany({
+      where: { repoId },
+      orderBy: [{ riskScore: "desc" }, { updatedAt: "desc" }],
+      skip: (page - 1) * limit,
+      take: limit
+    });
+
+    response.status(200).json({
+      page,
+      limit,
+      items: pullRequests.map((pr) => ({
+        id: pr.id,
+        number: pr.number,
+        title: pr.title,
+        author: pr.author,
+        status: pr.status,
+        riskScore: pr.riskScore,
+        summary:
+          pr.summary === null || pr.summary.length <= 150
+            ? pr.summary
+            : `${pr.summary.slice(0, 150)}...`,
+        breakingChanges: breakingChangesFromMetadata(pr.metadata)
+      }))
+    });
+  }
+);
+
+reposRouter.get(
+  "/api/v1/repos/:id/prs/:prId/intelligence",
+  async (request: Request, response: Response): Promise<void> => {
+    const repoId = getRouteParam(request.params.id);
+    const prId = getRouteParam(request.params.prId);
+    const pullRequest = await prisma.pullRequest.findFirst({
+      where: {
+        id: prId,
+        repoId
+      }
+    });
+
+    if (pullRequest === null) {
+      throw new AppError("Pull request not found", 404);
+    }
+
+    if (pullRequest.summary === null || pullRequest.riskScore === null) {
+      const job = await getPrAnalysisQueue().add("analyze-pr", {
+        repoId,
+        prId: pullRequest.id,
+        prNumber: pullRequest.number
+      });
+      response.status(202).json({
+        message: "Analysis queued",
+        jobId: job.id
+      });
+      return;
+    }
+
+    response.status(200).json({
+      id: pullRequest.id,
+      number: pullRequest.number,
+      title: pullRequest.title,
+      author: pullRequest.author,
+      status: pullRequest.status,
+      summary: pullRequest.summary,
+      riskScore: pullRequest.riskScore,
+      metadata: pullRequest.metadata
+    });
+  }
+);
+
+reposRouter.get(
+  "/api/v1/repos/:id/contributors",
+  async (request: Request, response: Response): Promise<void> => {
+    const repoId = getRouteParam(request.params.id);
+    const contributors = await prisma.contributor.findMany({
+      where: { repoId },
+      orderBy: { commitCount: "desc" }
+    });
+
+    response.status(200).json(
+      contributors.map((contributor) => ({
+        login: contributor.login,
+        commitCount: contributor.commitCount,
+        linesAdded: contributor.linesAdded,
+        linesRemoved: contributor.linesRemoved,
+        ownedFilesCount: ownedFilesCount(contributor.ownedFiles)
+      }))
+    );
+  }
+);
+
+reposRouter.get(
+  "/api/v1/repos/:id/bus-factor",
+  async (request: Request, response: Response): Promise<void> => {
+    const repoId = getRouteParam(request.params.id);
+    const repository = await prisma.repository.findUnique({
+      where: { id: repoId },
+      select: { metadata: true }
+    });
+
+    if (repository === null) {
+      throw new AppError("Repository not found", 404);
+    }
+
+    const analytics = contributorAnalyticsFromMetadata(repository.metadata);
+    if (analytics === null) {
+      const job = await getContributorAnalysisQueue().add("analyze-contributors", {
+        repoId
+      });
+      response.status(202).json({
+        message: "Analysis queued",
+        jobId: job.id
+      });
+      return;
+    }
+
+    response.status(200).json(analytics);
+  }
+);
+
+reposRouter.get(
+  "/api/v1/repos/:id/contributors/:login/activity",
+  async (request: Request, response: Response): Promise<void> => {
+    const repoId = getRouteParam(request.params.id);
+    const login = getRouteParam(request.params.login);
+    const trends = await new ContributorIntelligenceService().getActivityTrends(
+      repoId,
+      login
+    );
+
+    response.status(200).json(trends);
   }
 );
 
