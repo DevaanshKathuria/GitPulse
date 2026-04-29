@@ -1,5 +1,6 @@
 import { redisConnection } from "@gitpulse/queue";
 import { Redis } from "ioredis";
+import { logger } from "./lib/logger.js";
 
 export const redis = new Redis({
   ...redisConnection,
@@ -10,7 +11,8 @@ export const redis = new Redis({
 });
 
 redis.on("error", (error) => {
-  console.warn(
-    `Redis cache unavailable: ${error.message || error.name || "connection failed"}`
+  logger.warn(
+    { error: error.message || error.name || "connection failed" },
+    "redis cache unavailable"
   );
 });

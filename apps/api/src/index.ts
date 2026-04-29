@@ -7,6 +7,8 @@ import express, {
 } from "express";
 import type { IncomingMessage, Server } from "node:http";
 import { AppError } from "./errors.js";
+import { logger } from "./lib/logger.js";
+import { register } from "./lib/metrics.js";
 import { reposRouter } from "./routes/repos.js";
 import { searchRouter } from "./routes/search.js";
 import { githubWebhookRouter } from "@gitpulse/ingestion";
@@ -31,6 +33,11 @@ app.get("/health", (_request: Request, response: Response) => {
   response.status(200).json({ status: "ok" });
 });
 
+app.get("/metrics", async (_request: Request, response: Response) => {
+  response.setHeader("Content-Type", register.contentType);
+  response.status(200).send(await register.metrics());
+});
+
 app.use(reposRouter);
 app.use(searchRouter);
 app.use(githubWebhookRouter);
@@ -44,6 +51,14 @@ const errorHandler: ErrorRequestHandler = (error, _request, response, _next) => 
     error instanceof AppError
       ? error
       : new AppError("Internal server error", 500);
+
+  logger.error(
+    {
+      statusCode: appError.statusCode,
+      error: error instanceof Error ? error.message : "Unknown API error"
+    },
+    "api request failed"
+  );
 
   response.status(appError.statusCode).json({
     error: appError.message
@@ -87,7 +102,7 @@ const startServer = async (): Promise<{ server: Server; port: number }> => {
       };
     } catch (error: unknown) {
       if (isListenError(error) && error.code === "EADDRINUSE") {
-        console.warn(`Port ${port} is already in use, trying ${port + 1}.`);
+        logger.warn({ port, nextPort: port + 1 }, "port already in use");
         continue;
       }
 
@@ -105,10 +120,10 @@ const startServer = async (): Promise<{ server: Server; port: number }> => {
 const { server, port } = await startServer();
 
 await startWorkers();
-console.log(`API server listening on port ${port}`);
+logger.info({ port }, "api server listening");
 
 server.on("error", (error) => {
-  console.error(error);
+  logger.error({ error: error.message }, "api server error");
   void shutdownWorkers().finally(() => {
     process.exit(1);
   });
