@@ -1,12 +1,13 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
-RUN corepack enable
+RUN apk add --no-cache python3 make g++
+RUN npm install -g pnpm@9.15.4
 COPY . .
 RUN pnpm install --frozen-lockfile
 
 FROM node:20-alpine AS builder
 WORKDIR /app
-RUN corepack enable
+RUN npm install -g pnpm@9.15.4
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm --filter @gitpulse/web build
