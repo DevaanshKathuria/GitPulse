@@ -1,7 +1,10 @@
 import { Embedder } from "./embedder.js";
 import { KeywordStore } from "./keyword-store.js";
 import { VectorStore } from "./vector-store.js";
+import { hashText } from "./hash.js";
 import type { SearchResult, StoreFilters } from "./types.js";
+import pino from "pino";
+import { Counter, Histogram, register } from "prom-client";
 
 const vectorCandidateCount = 20;
 const bm25CandidateCount = 20;
@@ -10,6 +13,26 @@ const rerankCandidateCount = 20;
 const defaultHybridTopK = 10;
 const huggingFaceUrl =
   "https://api-inference.huggingface.co/models/cross-encoder/ms-marco-MiniLM-L-6-v2";
+const logger = pino({ name: "gitpulse-retrieval" });
+const searchLatencySeconds =
+  (register.getSingleMetric("gitpulse_search_latency_seconds") as
+    | Histogram<string>
+    | undefined) ??
+  new Histogram({
+    name: "gitpulse_search_latency_seconds",
+    help: "Search latency",
+    labelNames: ["strategy"],
+    buckets: [0.1, 0.25, 0.5, 1, 2, 5]
+  });
+const searchRequestsTotal =
+  (register.getSingleMetric("gitpulse_search_requests_total") as
+    | Counter<string>
+    | undefined) ??
+  new Counter({
+    name: "gitpulse_search_requests_total",
+    help: "Total search requests",
+    labelNames: ["strategy"]
+  });
 
 interface RerankScore {
   index: number;
@@ -93,17 +116,35 @@ export class SearchEngine {
     filters?: { language?: string; filePattern?: string };
     topK?: number;
   }): Promise<SearchResult[]> {
+    const startedAt = Date.now();
     const topK = params.topK ?? defaultHybridTopK;
+    let results: SearchResult[];
 
     if (params.strategy === "vector") {
-      return this.searchVector(params.query, params.repoId, params.filters, topK);
+      results = await this.searchVector(params.query, params.repoId, params.filters, topK);
+    } else if (params.strategy === "bm25") {
+      results = await this.searchKeyword(params.query, params.repoId, params.filters, topK);
+    } else {
+      results = await this.searchHybrid(params.query, params.repoId, params.filters, topK);
     }
 
-    if (params.strategy === "bm25") {
-      return this.searchKeyword(params.query, params.repoId, params.filters, topK);
+    const latencyMs = Date.now() - startedAt;
+    try {
+      searchRequestsTotal.inc({ strategy: params.strategy });
+      searchLatencySeconds.observe({ strategy: params.strategy }, latencyMs / 1000);
+    } catch {
+      // Metrics must never break search.
     }
-
-    return this.searchHybrid(params.query, params.repoId, params.filters, topK);
+    logger.info(
+      {
+        query: hashText(params.query),
+        strategy: params.strategy,
+        latencyMs,
+        resultCount: results.length
+      },
+      "search query completed"
+    );
+    return results;
   }
 
   private async searchVector(

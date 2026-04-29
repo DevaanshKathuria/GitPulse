@@ -173,7 +173,9 @@ export class ParserOrchestrator {
 
     logger.info(
       {
+        fileId,
         filePath,
+        path: filePath,
         functionCount: result.functions.length,
         importCount: result.imports.length
       },

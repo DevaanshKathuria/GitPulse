@@ -1,11 +1,23 @@
 import { type Job, Worker } from "bullmq";
 import pino from "pino";
+import { Histogram, register } from "prom-client";
 import { redisConnection } from "./config.js";
 import type { QueueName } from "./queues.js";
 
 const logger = pino({ name: "gitpulse-queue" });
 
 type MetricOutcome = "success" | "failure";
+
+const workerJobDuration =
+  (register.getSingleMetric(
+    "gitpulse_worker_job_duration_seconds"
+  ) as Histogram<string> | undefined) ??
+  new Histogram({
+    name: "gitpulse_worker_job_duration_seconds",
+    help: "Worker job duration",
+    labelNames: ["queue", "status"],
+    buckets: [0.5, 1, 5, 10, 30, 60]
+  });
 
 const errorMessage = (error: Error): string => {
   return error.message.length > 0 ? error.message : error.name;
@@ -100,8 +112,13 @@ export abstract class WorkerBase<TJobData extends object> {
     durationMs: number,
     outcome: MetricOutcome
   ): void {
-    void queueName;
-    void durationMs;
-    void outcome;
+    try {
+      workerJobDuration.observe(
+        { queue: queueName, status: outcome },
+        durationMs / 1000
+      );
+    } catch {
+      return;
+    }
   }
 }

@@ -34,7 +34,7 @@ export class KeywordStore {
   private initialized = false;
 
   public constructor(node = elasticsearchUrl) {
-    this.client = new Client({ node });
+    this.client = new Client({ node, requestTimeout: 1000 });
   }
 
   public async initialize(): Promise<void> {

@@ -6,9 +6,28 @@ import {
 import { redisConnection } from "@gitpulse/queue";
 import { Redis } from "ioredis";
 import pino from "pino";
+import { Counter, Histogram, register } from "prom-client";
 import { GitHubClient, type GitHubIssue, type GitHubPullRequest } from "./github-client.js";
 
 const logger = pino({ name: "gitpulse-ingestion" });
+const ingestionJobsTotal =
+  (register.getSingleMetric("gitpulse_ingestion_jobs_total") as
+    | Counter<string>
+    | undefined) ??
+  new Counter({
+    name: "gitpulse_ingestion_jobs_total",
+    help: "Total ingestion jobs",
+    labelNames: ["status"]
+  });
+const ingestionDurationSeconds =
+  (register.getSingleMetric("gitpulse_ingestion_duration_seconds") as
+    | Histogram<string>
+    | undefined) ??
+  new Histogram({
+    name: "gitpulse_ingestion_duration_seconds",
+    help: "Ingestion duration",
+    buckets: [1, 5, 10, 30, 60, 120, 300]
+  });
 let redis: Redis | null = null;
 
 const getRedis = (): Redis => {
@@ -30,12 +49,34 @@ const getRedis = (): Redis => {
   return redis;
 };
 
-const invalidateArchitectureCache = async (repoId: string): Promise<void> => {
+const observeIngestion = (status: string, durationMs: number): void => {
   try {
-    await getRedis().del(`gitpulse:arch:${repoId}`);
+    ingestionJobsTotal.inc({ status });
+    ingestionDurationSeconds.observe(durationMs / 1000);
+  } catch {
+    return;
+  }
+};
+
+const invalidateCachePattern = async (pattern: string): Promise<void> => {
+  const keys: string[] = [];
+
+  try {
+    const client = getRedis();
+    const stream = client.scanStream({ match: pattern, count: 100 });
+
+    for await (const chunk of stream) {
+      if (Array.isArray(chunk)) {
+        keys.push(...chunk.filter((key): key is string => typeof key === "string"));
+      }
+    }
+
+    if (keys.length > 0) {
+      await client.del(...keys, ...keys.map((key) => `${key}:stale`));
+    }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown Redis error";
-    logger.warn({ repoId, error: message }, "failed to invalidate architecture cache");
+    logger.warn({ pattern, error: message }, "failed to invalidate cache pattern");
   }
 };
 const MAX_FILE_BYTES = 500 * 1024;
@@ -127,9 +168,11 @@ export class IngestionService {
     updateProgress?: (percentage: number) => Promise<void>
   ): Promise<void> {
     let ingestionJobId: string | null = null;
+    const startedAt = Date.now();
 
     try {
       const { owner, name } = parseGitHubUrl(githubUrl);
+      logger.info({ repoId, step: "start", isIncremental }, "ingestion started");
 
       await prisma.repository.update({
         where: { id: repoId },
@@ -155,16 +198,37 @@ export class IngestionService {
           : undefined;
 
       const repoMetadata = await this.githubClient.getRepo(owner, name);
+      logger.info({ repoId, step: "repo_metadata", itemCount: 1 }, "ingestion step complete");
       await updateProgress?.(20);
-      await this.upsertCommits(repoId, owner, name, since);
+      const commitCount = await this.upsertCommits(repoId, owner, name, since);
+      logger.info(
+        { repoId, step: "commits", itemCount: commitCount },
+        "ingestion step complete"
+      );
       await updateProgress?.(35);
-      await this.upsertPullRequests(repoId, owner, name, since);
+      const pullRequestCount = await this.upsertPullRequests(repoId, owner, name, since);
+      logger.info(
+        { repoId, step: "pull_requests", itemCount: pullRequestCount },
+        "ingestion step complete"
+      );
       await updateProgress?.(50);
-      await this.upsertIssues(repoId, owner, name, since);
+      const issueCount = await this.upsertIssues(repoId, owner, name, since);
+      logger.info(
+        { repoId, step: "issues", itemCount: issueCount },
+        "ingestion step complete"
+      );
       await updateProgress?.(65);
-      await this.upsertContributors(repoId, owner, name);
+      const contributorCount = await this.upsertContributors(repoId, owner, name);
+      logger.info(
+        { repoId, step: "contributors", itemCount: contributorCount },
+        "ingestion step complete"
+      );
       await updateProgress?.(80);
-      await this.upsertFiles(repoId, owner, name, repoMetadata.defaultBranch);
+      const fileCount = await this.upsertFiles(repoId, owner, name, repoMetadata.defaultBranch);
+      logger.info(
+        { repoId, step: "files", itemCount: fileCount },
+        "ingestion step complete"
+      );
       await updateProgress?.(90);
 
       const completedAt = new Date();
@@ -192,8 +256,23 @@ export class IngestionService {
         }
       });
 
-      await invalidateArchitectureCache(repoId);
+      await Promise.all([
+        invalidateCachePattern(`gitpulse:arch:${repoId}`),
+        invalidateCachePattern(`gitpulse:contrib:${repoId}`),
+        invalidateCachePattern(`gitpulse:busf:${repoId}`),
+        invalidateCachePattern(`gitpulse:stats:${repoId}`)
+      ]);
       await getContributorAnalysisQueue().add("analyze-contributors", { repoId });
+      observeIngestion("completed", Date.now() - startedAt);
+      logger.info(
+        {
+          repoId,
+          step: "completed",
+          itemCount: fileCount,
+          durationMs: Date.now() - startedAt
+        },
+        "ingestion completed"
+      );
     } catch (error: unknown) {
       const message = errorMessage(error);
       logger.error({ repoId, githubUrl, error: message }, "ingestion failed");
@@ -213,6 +292,7 @@ export class IngestionService {
           }
         });
       }
+      observeIngestion("failed", Date.now() - startedAt);
     }
   }
 
@@ -221,7 +301,7 @@ export class IngestionService {
     owner: string,
     name: string,
     since?: Date
-  ): Promise<void> {
+  ): Promise<number> {
     const commits = await this.githubClient.getCommits(owner, name, since);
 
     for (const commit of commits) {
@@ -248,6 +328,8 @@ export class IngestionService {
         }
       });
     }
+
+    return commits.length;
   }
 
   private async upsertPullRequests(
@@ -255,7 +337,7 @@ export class IngestionService {
     owner: string,
     name: string,
     since?: Date
-  ): Promise<void> {
+  ): Promise<number> {
     const pullRequests = (await this.githubClient.getPullRequests(
       owner,
       name,
@@ -292,6 +374,8 @@ export class IngestionService {
         }
       });
     }
+
+    return pullRequests.length;
   }
 
   private async upsertIssues(
@@ -299,7 +383,7 @@ export class IngestionService {
     owner: string,
     name: string,
     since?: Date
-  ): Promise<void> {
+  ): Promise<number> {
     const issues = (await this.githubClient.getIssues(owner, name)).filter(
       (issue: GitHubIssue) => isUpdatedSince(issue, since)
     );
@@ -326,13 +410,15 @@ export class IngestionService {
         }
       });
     }
+
+    return issues.length;
   }
 
   private async upsertContributors(
     repoId: string,
     owner: string,
     name: string
-  ): Promise<void> {
+  ): Promise<number> {
     const contributors = await this.githubClient.getContributors(owner, name);
 
     for (const contributor of contributors) {
@@ -357,6 +443,8 @@ export class IngestionService {
         }
       });
     }
+
+    return contributors.length;
   }
 
   private async upsertFiles(
@@ -364,8 +452,9 @@ export class IngestionService {
     owner: string,
     name: string,
     branch: string
-  ): Promise<void> {
+  ): Promise<number> {
     const tree = await this.githubClient.getFileTree(owner, name, branch);
+    let upserted = 0;
 
     for (const file of tree) {
       if (
@@ -408,6 +497,9 @@ export class IngestionService {
         path: file.path,
         language
       });
+      upserted += 1;
     }
+
+    return upserted;
   }
 }

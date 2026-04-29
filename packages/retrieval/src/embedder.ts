@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import pino from "pino";
+import { Counter, register } from "prom-client";
 import { hashText } from "./hash.js";
 import { getRedis } from "./redis.js";
 import type { Chunk, EmbeddedChunk } from "./types.js";
@@ -8,6 +9,14 @@ const logger = pino({ name: "gitpulse-retrieval" });
 const embeddingCacheTtlSeconds = 7 * 24 * 60 * 60;
 const embeddingBatchSize = 50;
 const maxRetries = 3;
+const embeddingBatchesTotal =
+  (register.getSingleMetric("gitpulse_embedding_batches_total") as
+    | Counter<string>
+    | undefined) ??
+  new Counter({
+    name: "gitpulse_embedding_batches_total",
+    help: "Embedding API batches processed"
+  });
 
 const sleep = async (milliseconds: number): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -29,10 +38,10 @@ const parseCachedEmbedding = (cached: string | null): number[] | null => {
 };
 
 export class Embedder {
-  private readonly openai: OpenAI;
+  private readonly apiKey: string;
 
-  public constructor(apiKey = process.env.OPENAI_API_KEY) {
-    this.openai = new OpenAI({ apiKey });
+  public constructor(apiKey = process.env.OPENAI_API_KEY ?? "") {
+    this.apiKey = apiKey;
   }
 
   public async embedText(content: string): Promise<number[] | null> {
@@ -53,6 +62,14 @@ export class Embedder {
   }
 
   public async embedChunks(chunks: Chunk[]): Promise<EmbeddedChunk[]> {
+    if (this.apiKey.length === 0) {
+      logger.error("embedding skipped because OPENAI_API_KEY is not configured");
+      return chunks.map((chunk) => ({
+        ...chunk,
+        embedding: null
+      }));
+    }
+
     const results = new Map<number, number[] | null>();
     const pending: Array<{ index: number; chunk: Chunk; cacheKey: string }> = [];
     const redis = getRedis();
@@ -77,6 +94,11 @@ export class Embedder {
       const embeddings = await this.embedBatchWithRetry(
         batch.map((item) => item.chunk.content)
       );
+      try {
+        embeddingBatchesTotal.inc();
+      } catch {
+        // Metrics must never break embedding.
+      }
 
       if (embeddings === null) {
         for (const item of batch) {
@@ -112,9 +134,16 @@ export class Embedder {
   }
 
   private async embedBatchWithRetry(inputs: string[]): Promise<number[][] | null> {
+    if (this.apiKey.length === 0) {
+      logger.error("embedding skipped because OPENAI_API_KEY is not configured");
+      return null;
+    }
+
+    const openai = new OpenAI({ apiKey: this.apiKey });
+
     for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
       try {
-        const response = await this.openai.embeddings.create({
+        const response = await openai.embeddings.create({
           model: "text-embedding-3-small",
           input: inputs
         });

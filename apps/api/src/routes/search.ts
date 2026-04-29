@@ -2,7 +2,10 @@ import { prisma, Prisma } from "@gitpulse/db";
 import { hashText, SearchEngine, type SearchResult } from "@gitpulse/retrieval";
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
-import { redis } from "../redis.js";
+import { cache } from "../lib/cache.js";
+import { CacheKeys } from "../lib/cache-keys.js";
+import { logger } from "../lib/logger.js";
+import { observeSearch } from "../lib/metrics.js";
 
 export const searchRouter = Router();
 
@@ -43,50 +46,20 @@ const isSearchResult = (value: unknown): value is SearchResult => {
   );
 };
 
-const parseCachedSearch = (cached: string | null): CachedSearchPayload | null => {
-  if (cached === null) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(cached) as unknown;
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "results" in parsed &&
-      "strategy" in parsed &&
-      Array.isArray((parsed as { results: unknown }).results) &&
-      (parsed as { results: unknown[] }).results.every(isSearchResult) &&
-      (parsed as { strategy: unknown }).strategy !== undefined
-    ) {
-      return parsed as CachedSearchPayload;
-    }
-  } catch {
-    return null;
+const parseCachedSearch = (cached: unknown): CachedSearchPayload | null => {
+  if (
+    typeof cached === "object" &&
+    cached !== null &&
+    "results" in cached &&
+    "strategy" in cached &&
+    Array.isArray((cached as { results: unknown }).results) &&
+    (cached as { results: unknown[] }).results.every(isSearchResult) &&
+    (cached as { strategy: unknown }).strategy !== undefined
+  ) {
+    return cached as CachedSearchPayload;
   }
 
   return null;
-};
-
-const getCachedSearch = async (
-  cacheKey: string
-): Promise<CachedSearchPayload | null> => {
-  try {
-    return parseCachedSearch(await redis.get(cacheKey));
-  } catch {
-    return null;
-  }
-};
-
-const setCachedSearch = async (
-  cacheKey: string,
-  payload: CachedSearchPayload
-): Promise<void> => {
-  try {
-    await redis.set(cacheKey, JSON.stringify(payload), "EX", 60 * 60);
-  } catch {
-    return;
-  }
 };
 
 const retrievalResultsJson = (results: SearchResult[]): Prisma.InputJsonValue => {
@@ -98,7 +71,7 @@ searchRouter.post(
   async (request: Request, response: Response): Promise<void> => {
     const parsed = searchSchema.parse(request.body);
     const startedAt = Date.now();
-    const cacheKey = `gitpulse:search:${hashText(
+    const queryHash = hashText(
       JSON.stringify({
         query: parsed.query,
         repoId: parsed.repoId,
@@ -106,11 +79,13 @@ searchRouter.post(
         filters: parsed.filters,
         topK: parsed.topK
       })
-    )}`;
-    const cached = await getCachedSearch(cacheKey);
+    );
+    const cacheKey = CacheKeys.search(queryHash);
+    const cached = parseCachedSearch(await cache.get<unknown>(cacheKey));
 
     if (cached !== null) {
       const latencyMs = Date.now() - startedAt;
+      observeSearch(cached.strategy, latencyMs);
       await prisma.retrievalLog.create({
         data: {
           query: parsed.query,
@@ -131,6 +106,15 @@ searchRouter.post(
 
     const results = await new SearchEngine().search(parsed);
     const latencyMs = Date.now() - startedAt;
+    logger.info(
+      {
+        query: hashText(parsed.query),
+        strategy: parsed.strategy,
+        latencyMs,
+        resultCount: results.length
+      },
+      "search request"
+    );
 
     await prisma.retrievalLog.create({
       data: {
@@ -141,9 +125,12 @@ searchRouter.post(
         strategy: parsed.strategy
       }
     });
-    await setCachedSearch(cacheKey, {
+    await cache.set(cacheKey, {
       results,
       strategy: parsed.strategy
+    }, {
+      ttl: 60 * 60,
+      staleWhileRevalidate: true
     });
 
     response.status(200).json({
