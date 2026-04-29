@@ -3,7 +3,7 @@ WORKDIR /app
 RUN corepack enable
 COPY . .
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @gitpulse/api build
+RUN pnpm --filter @gitpulse/api... build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
