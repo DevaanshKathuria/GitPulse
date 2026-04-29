@@ -5,11 +5,7 @@ RUN npm install -g pnpm@9.15.4
 COPY . .
 RUN pnpm install --frozen-lockfile
 
-FROM node:20-alpine AS builder
-WORKDIR /app
-RUN npm install -g pnpm@9.15.4
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+FROM deps AS builder
 RUN pnpm --filter @gitpulse/web build
 
 FROM node:20-alpine AS runner
