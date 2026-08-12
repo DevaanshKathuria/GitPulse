@@ -1,6 +1,8 @@
 import { Octokit } from "@octokit/rest";
 
-const RATE_LIMIT_FLOOR = 100;
+// Unauthenticated GitHub API clients receive only 60 requests per hour, so a
+// floor of 100 pauses every public-repository ingestion after its first call.
+const RATE_LIMIT_FLOOR = 5;
 const MAX_RETRIES = 3;
 
 export interface GitHubRepoMetadata {
@@ -250,25 +252,32 @@ export class GitHubClient {
     owner: string,
     name: string
   ): Promise<GitHubContributorStats[]> {
-    const contributors = await this.withRetry(() =>
-      this.octokit.paginate(this.octokit.rest.repos.getContributorsStats, {
+    // Contributor statistics is a computed, non-paginated endpoint. Passing it
+    // through Octokit's paginator can flatten the response incorrectly.
+    const response = await this.withRetry(() =>
+      this.octokit.rest.repos.getContributorsStats({
         owner,
         repo: name
       })
     );
+    const contributors = Array.isArray(response.data) ? response.data : [];
 
-    return contributors.map((contributor) => ({
-      login: contributor.author?.login ?? "unknown",
-      commitCount: contributor.total,
-      linesAdded: contributor.weeks.reduce(
-        (total, week) => total + (week.a ?? 0),
-        0
-      ),
-      linesRemoved: contributor.weeks.reduce(
-        (total, week) => total + (week.d ?? 0),
-        0
-      )
-    }));
+    return contributors.map((contributor) => {
+      const weeks = contributor.weeks ?? [];
+
+      return {
+        login: contributor.author?.login ?? "unknown",
+        commitCount: contributor.total,
+        linesAdded: weeks.reduce(
+          (total, week) => total + (week.a ?? 0),
+          0
+        ),
+        linesRemoved: weeks.reduce(
+          (total, week) => total + (week.d ?? 0),
+          0
+        )
+      };
+    });
   }
 
   private async getPullRequestDiff(

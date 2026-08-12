@@ -19,10 +19,10 @@
     "test": "echo \"No retrieval tests configured\""
   },
   "dependencies": {
-    "@elastic/elasticsearch": "^9.3.4",
+    "@elastic/elasticsearch": "^8.11.0",
     "@gitpulse/db": "workspace:*",
     "@gitpulse/queue": "workspace:*",
-    "@qdrant/js-client-rest": "^1.17.0",
+    "@qdrant/js-client-rest": "^1.18.0",
     "bullmq": "^5.34.7",
     "ioredis": "^5.10.1",
     "openai": "^6.34.0",

@@ -27,6 +27,7 @@ const payloadValue = (
 export class VectorStore {
   private readonly client: QdrantClient;
   private initialized = false;
+  private initialization: Promise<void> | null = null;
 
   public constructor(url = qdrantUrl) {
     this.client = new QdrantClient({ url });
@@ -37,17 +38,24 @@ export class VectorStore {
       return;
     }
 
-    const exists = await this.client.collectionExists(collectionName);
-    if (!exists.exists) {
-      await this.client.createCollection(collectionName, {
-        vectors: {
-          size: vectorSize,
-          distance: "Cosine"
-        }
-      });
-    }
+    this.initialization ??= (async () => {
+      const exists = await this.client.collectionExists(collectionName);
+      if (!exists.exists) {
+        await this.client.createCollection(collectionName, {
+          vectors: {
+            size: vectorSize,
+            distance: "Cosine"
+          }
+        });
+      }
+    })();
 
-    this.initialized = true;
+    try {
+      await this.initialization;
+      this.initialized = true;
+    } finally {
+      this.initialization = null;
+    }
   }
 
   public async upsert(points: VectorPoint[]): Promise<void> {
