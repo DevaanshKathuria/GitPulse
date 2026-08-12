@@ -16,7 +16,7 @@
     "dev": "tsc -p tsconfig.json --watch",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo \"No retrieval tests configured\""
+    "test": "vitest run src"
   },
   "dependencies": {
     "@elastic/elasticsearch": "^8.11.0",
@@ -30,6 +30,7 @@
     "prom-client": "^15.1.3"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2"
+    "@types/node": "^22.10.2",
+    "vitest": "^4.1.5"
   }
 }

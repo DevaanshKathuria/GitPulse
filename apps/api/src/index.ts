@@ -17,6 +17,30 @@ import { shutdownWorkers, startWorkers } from "./workers.js";
 const app = express();
 const requestedPort = Number(process.env.PORT ?? 3001);
 const maxPortAttempts = 10;
+const allowedOrigins = new Set(
+  (process.env.WEB_URL ?? "http://localhost:3000,http://127.0.0.1:3000")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0)
+);
+
+app.use((request: Request, response: Response, next: NextFunction) => {
+  const origin = request.header("origin");
+
+  if (origin !== undefined && allowedOrigins.has(origin)) {
+    response.setHeader("Access-Control-Allow-Origin", origin);
+    response.setHeader("Vary", "Origin");
+    response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  }
+
+  if (request.method === "OPTIONS") {
+    response.sendStatus(204);
+    return;
+  }
+
+  next();
+});
 
 app.use(
   express.json({

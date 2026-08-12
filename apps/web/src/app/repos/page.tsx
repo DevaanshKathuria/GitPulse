@@ -20,6 +20,7 @@ export default function ReposPage() {
   const [open, setOpen] = useState(false);
   const [githubUrl, setGithubUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const load = async () => {
     const list = await api.listRepos();
@@ -55,10 +56,18 @@ export default function ReposPage() {
 
   const submit = async () => {
     setError(null);
-    await api.createRepo(githubUrl);
-    setGithubUrl("");
-    setOpen(false);
-    await load();
+    setSubmitting(true);
+
+    try {
+      await api.createRepo(githubUrl);
+      setGithubUrl("");
+      setOpen(false);
+      await load();
+    } catch {
+      setError("Unable to add that repository. Check the URL and try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -81,7 +90,14 @@ export default function ReposPage() {
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {repos.map((repo) => (
+          {repos.length === 0 ? (
+            <Card className="md:col-span-2 xl:col-span-3">
+              <CardContent className="py-12 text-center">
+                <p className="font-medium text-slate-200">No repositories indexed yet</p>
+                <p className="mt-1 text-sm text-slate-500">Add a public GitHub repository to start exploring its code.</p>
+              </CardContent>
+            </Card>
+          ) : repos.map((repo) => (
             <Link key={repo.id} href={`/repos/${repo.id}`}>
               <Card className="h-full transition hover:border-sky-500/60">
                 <CardHeader className="flex flex-row items-start justify-between gap-3">
@@ -129,8 +145,8 @@ export default function ReposPage() {
                 <Button variant="ghost" onClick={() => setOpen(false)}>
                   Cancel
                 </Button>
-                <Button disabled={githubUrl.length < 12} onClick={() => void submit()}>
-                  Start ingestion
+                <Button disabled={githubUrl.length < 12 || submitting} onClick={() => void submit()}>
+                  {submitting ? "Adding..." : "Start ingestion"}
                 </Button>
               </div>
             </CardContent>

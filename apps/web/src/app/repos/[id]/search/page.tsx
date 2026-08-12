@@ -18,19 +18,27 @@ export default function SearchPage({ params }: { params: { id: string } }) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [meta, setMeta] = useState<{ latencyMs: number; strategy: string; cached: boolean } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
     setLoading(true);
-    const response = await api.search({
-      query,
-      repoId: params.id,
-      strategy,
-      filters: language.length > 0 ? { language } : undefined,
-      topK: 10
-    });
-    setResults(response.results);
-    setMeta(response);
-    setLoading(false);
+    setError(null);
+
+    try {
+      const response = await api.search({
+        query,
+        repoId: params.id,
+        strategy,
+        filters: language.length > 0 ? { language } : undefined,
+        topK: 10
+      });
+      setResults(response.results);
+      setMeta(response);
+    } catch {
+      setError("Search failed. Confirm the repository is ready and the API is running.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -70,6 +78,8 @@ export default function SearchPage({ params }: { params: { id: string } }) {
           </div>
         </CardContent>
       </Card>
+
+      {error !== null ? <Badge tone="red">{error}</Badge> : null}
 
       {meta ? (
         <div className="flex flex-wrap items-center gap-2 text-sm">

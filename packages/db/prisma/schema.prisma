@@ -84,6 +84,7 @@ model CodeFile {
   language     String?
   content      String?         @db.Text
   lastModified DateTime?
+  indexedAt    DateTime?
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 

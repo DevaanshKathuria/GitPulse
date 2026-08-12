@@ -33,16 +33,14 @@ export class FileParsingWorker extends WorkerBase<FileParsingJob> {
 
     const language = detectLanguage(codeFile.path);
 
-    if (language === null) {
-      return;
+    if (language !== null) {
+      await this.parserOrchestrator.parse(
+        codeFile.id,
+        codeFile.path,
+        codeFile.content,
+        language
+      );
     }
-
-    await this.parserOrchestrator.parse(
-      codeFile.id,
-      codeFile.path,
-      codeFile.content,
-      language
-    );
 
     await getEmbeddingGenerationQueue().add("generate-embeddings", {
       repoId: job.data.repoId,

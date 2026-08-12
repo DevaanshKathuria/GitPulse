@@ -1,4 +1,5 @@
 export * from "./chunker.js";
+export * from "./code-indexer.js";
 export * from "./embedder.js";
 export * from "./embedding-worker.js";
 export * from "./hash.js";

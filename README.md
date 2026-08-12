@@ -10,6 +10,10 @@
 
 GitPulse ingests any GitHub repository and gives you semantic code search, AST-powered architecture analysis, PR risk scoring, contributor ownership maps, and engineering analytics -- all built on a distributed async pipeline.
 
+![GitPulse semantic search returning results from a live indexed repository](docs/assets/gitpulse-search.jpg)
+
+The screenshot above is from the Docker Compose stack indexing this repository and executing a real BM25 query.
+
 ---
 
 ## What it does
@@ -162,6 +166,8 @@ repo-ingestion → file-parsing → embedding-generation
                               ↘ contributor-analysis
 ```
 
+Repository source is downloaded as a single GitHub tarball instead of one API request per file, so public repositories can be indexed without exhausting GitHub's unauthenticated rate limit. A repository remains in `indexing` until every file has completed parsing and search indexing.
+
 All jobs are: idempotent (safe to re-run), retry-safe (3 attempts, exponential backoff), and failure-isolated (one file failing does not block the rest of the repo).
 
 ---
@@ -223,10 +229,16 @@ gitpulse/
 ### Prerequisites
 
 - Docker + Docker Compose
-- Node.js 20+
+- Node.js 20 (see [`.nvmrc`](.nvmrc))
 - pnpm 9+
-- GitHub personal access token (classic, `repo` scope)
-- OpenAI API key
+
+No API keys are required to index and BM25-search a public repository. Optional keys unlock additional capabilities:
+
+| Variable | Required for |
+|---|---|
+| `GITHUB_TOKEN` | Private repositories and full commit/PR/contributor analytics |
+| `OPENAI_API_KEY` | Vector embeddings and semantic/vector search |
+| `HUGGINGFACE_API_KEY` | Authenticated cross-encoder reranking |
 
 ### 1. Clone and install
 
@@ -240,13 +252,13 @@ pnpm install
 
 ```bash
 cp .env.example .env
-# Fill in: GITHUB_TOKEN, OPENAI_API_KEY, HUGGINGFACE_API_KEY
+# Add optional API keys for the capabilities listed above
 ```
 
 ### 3. Start infrastructure
 
 ```bash
-docker-compose up -d postgres redis qdrant elasticsearch
+docker compose up -d postgres redis qdrant elasticsearch
 ```
 
 ### 4. Run database migrations
@@ -264,6 +276,14 @@ pnpm dev
 ### 6. Open the UI
 
 Visit [http://localhost:3000](http://localhost:3000), click "Add Repository", and paste any public GitHub URL.
+
+### Fastest path: full Docker stack
+
+```bash
+docker compose up -d --build
+```
+
+Once the services are healthy, open [http://localhost:3000](http://localhost:3000) and add a public GitHub repository.
 
 ---
 
@@ -294,8 +314,6 @@ pnpm eval -- --repoId <your-repo-id>
 ```
 
 Outputs a strategy comparison table and writes results to `docs/benchmarks.md`.
-
----
 
 ## Observability
 

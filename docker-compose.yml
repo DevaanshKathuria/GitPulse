@@ -84,6 +84,7 @@ services:
       ELASTICSEARCH_URL: http://elasticsearch:9200
       PORT: 3001
       NODE_ENV: production
+      WEB_URL: http://localhost:3000
     ports:
       - "3001:3001"
     depends_on:
