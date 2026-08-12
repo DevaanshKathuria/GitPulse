@@ -13,6 +13,7 @@ const rerankCandidateCount = 20;
 const defaultHybridTopK = 10;
 const huggingFaceUrl =
   "https://api-inference.huggingface.co/models/cross-encoder/ms-marco-MiniLM-L-6-v2";
+const huggingFaceApiKey = process.env.HUGGINGFACE_API_KEY ?? "";
 const logger = pino({ name: "gitpulse-retrieval" });
 const searchLatencySeconds =
   (register.getSingleMetric("gitpulse_search_latency_seconds") as
@@ -241,8 +242,8 @@ export class SearchEngine {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          ...(process.env.HUGGINGFACE_API_KEY !== undefined
-            ? { authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY}` }
+          ...(huggingFaceApiKey.length > 0
+            ? { authorization: `Bearer ${huggingFaceApiKey}` }
             : {})
         },
         body: JSON.stringify({

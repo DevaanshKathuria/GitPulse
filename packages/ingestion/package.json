@@ -16,7 +16,7 @@
     "dev": "tsc -p tsconfig.json --watch",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo \"No ingestion tests configured\""
+    "test": "vitest run src"
   },
   "dependencies": {
     "@gitpulse/db": "workspace:*",
@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
-    "@types/node": "^22.10.2"
+    "@types/node": "^22.10.2",
+    "vitest": "^4.1.5"
   }
 }

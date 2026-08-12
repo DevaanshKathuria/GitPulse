@@ -1,8 +1,10 @@
 import { Octokit } from "@octokit/rest";
+import { gunzipSync } from "node:zlib";
 
-// Unauthenticated GitHub API clients receive only 60 requests per hour, so a
-// floor of 100 pauses every public-repository ingestion after its first call.
-const RATE_LIMIT_FLOOR = 5;
+// Pause only when the current request exhausts the unauthenticated allowance.
+// Repository contents use one archive request, so reserving several calls
+// would unnecessarily stall otherwise viable public-repository ingestion.
+const RATE_LIMIT_FLOOR = 1;
 const MAX_RETRIES = 3;
 
 export interface GitHubRepoMetadata {
@@ -45,6 +47,12 @@ export interface GitHubTreeFile {
   path: string;
   size: number | null;
   sha: string | null;
+}
+
+export interface GitHubArchiveFile {
+  path: string;
+  size: number;
+  content: Buffer;
 }
 
 export interface GitHubContributorStats {
@@ -91,10 +99,16 @@ const parseHeaderInt = (value: string | number | undefined): number | null => {
 
 export class GitHubClient {
   private readonly octokit: Octokit;
+  private readonly token: string | undefined;
 
   public constructor(token: string | undefined) {
+    const normalizedToken = token?.trim();
+    this.token =
+      normalizedToken === undefined || normalizedToken.length === 0
+        ? undefined
+        : normalizedToken;
     this.octokit = new Octokit({
-      auth: token === undefined || token.length === 0 ? undefined : token
+      auth: this.token
     });
 
     this.octokit.hook.after("request", async (response) => {
@@ -248,6 +262,41 @@ export class GitHubClient {
     return Buffer.from(response.data.content, "base64").toString("utf8");
   }
 
+  public async downloadRepositoryArchive(
+    owner: string,
+    name: string,
+    branch: string
+  ): Promise<GitHubArchiveFile[]> {
+    const response = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/tarball/${encodeURIComponent(branch)}`,
+      {
+        redirect: "follow",
+        headers: {
+          accept: "application/vnd.github+json",
+          "user-agent": "gitpulse",
+          "x-github-api-version": "2022-11-28",
+          ...(this.token === undefined
+            ? {}
+            : { authorization: `Bearer ${this.token}` })
+        }
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `GitHub archive download failed with status ${response.status}`
+      );
+    }
+
+    const archive = Buffer.from(await response.arrayBuffer());
+    const tar =
+      archive[0] === 0x1f && archive[1] === 0x8b
+        ? gunzipSync(archive)
+        : archive;
+
+    return parseTarFiles(tar);
+  }
+
   public async getContributors(
     owner: string,
     name: string
@@ -344,3 +393,66 @@ export class GitHubClient {
     await sleep(delayMs);
   }
 }
+
+const tarString = (buffer: Buffer, start: number, length: number): string => {
+  return buffer
+    .subarray(start, start + length)
+    .toString("utf8")
+    .replace(/\0.*$/s, "")
+    .trim();
+};
+
+const tarSize = (buffer: Buffer, offset: number): number => {
+  const value = tarString(buffer, offset + 124, 12);
+  const parsed = Number.parseInt(value, 8);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const stripArchiveRoot = (archivePath: string): string => {
+  return archivePath.split("/").slice(1).join("/");
+};
+
+export const parseTarFiles = (tar: Buffer): GitHubArchiveFile[] => {
+  const files: GitHubArchiveFile[] = [];
+  let offset = 0;
+  let pendingLongName: string | null = null;
+
+  while (offset + 512 <= tar.length) {
+    const name = tarString(tar, offset, 100);
+    if (name.length === 0) {
+      break;
+    }
+
+    const prefix = tarString(tar, offset + 345, 155);
+    const type = tarString(tar, offset + 156, 1);
+    const size = tarSize(tar, offset);
+    const contentStart = offset + 512;
+    const contentEnd = contentStart + size;
+    const headerPath = prefix.length > 0 ? `${prefix}/${name}` : name;
+
+    if (type === "L") {
+      pendingLongName = tar
+        .subarray(contentStart, contentEnd)
+        .toString("utf8")
+        .replace(/\0.*$/s, "")
+        .trim();
+    } else if (type === "" || type === "0") {
+      const path = stripArchiveRoot(pendingLongName ?? headerPath);
+      pendingLongName = null;
+
+      if (path.length > 0) {
+        files.push({
+          path,
+          size,
+          content: tar.subarray(contentStart, contentEnd)
+        });
+      }
+    } else {
+      pendingLongName = null;
+    }
+
+    offset = contentStart + Math.ceil(size / 512) * 512;
+  }
+
+  return files;
+};

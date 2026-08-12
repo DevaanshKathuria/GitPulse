@@ -135,9 +135,23 @@ reposRouter.post(
     }
 
     const { owner, name } = parseGithubOwnerName(parsed.data.githubUrl);
+    const githubUrl = `https://github.com/${owner}/${name}`;
+    const existingRepository = await prisma.repository.findUnique({
+      where: { githubUrl }
+    });
+
+    if (existingRepository !== null) {
+      response.status(200).json({
+        id: existingRepository.id,
+        status: existingRepository.status,
+        reused: true
+      });
+      return;
+    }
+
     const repository = await prisma.repository.create({
       data: {
-        githubUrl: parsed.data.githubUrl,
+        githubUrl,
         owner,
         name
       }

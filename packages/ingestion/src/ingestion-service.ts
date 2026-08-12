@@ -110,8 +110,14 @@ const shouldSkipPath = (path: string): boolean => {
     path.startsWith("dist/") ||
     path.startsWith("build/") ||
     path.endsWith(".min.js") ||
-    path.endsWith(".lock")
+    path.endsWith(".lock") ||
+    path.endsWith("package-lock.json") ||
+    path.endsWith("pnpm-lock.yaml")
   );
+};
+
+const isBinary = (content: Buffer): boolean => {
+  return content.subarray(0, 8_000).includes(0);
 };
 
 const detectLanguage = (path: string): string => {
@@ -154,11 +160,19 @@ const errorMessage = (error: unknown): string => {
   return error instanceof Error ? error.message : "Unknown ingestion error";
 };
 
+const jsonRecord = (value: unknown): Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+};
+
 export class IngestionService {
   private readonly githubClient: GitHubClient;
+  private readonly hasGitHubToken: boolean;
 
   public constructor(githubToken = process.env.GITHUB_TOKEN) {
     this.githubClient = new GitHubClient(githubToken);
+    this.hasGitHubToken = (githubToken?.trim().length ?? 0) > 0;
   }
 
   public async ingestRepo(
@@ -179,14 +193,28 @@ export class IngestionService {
         data: { status: "indexing" }
       });
 
-      const ingestionJob = await prisma.ingestionJob.create({
-        data: {
-          repoId,
-          status: "running",
-          startedAt: new Date(),
-          metadata: { isIncremental }
-        }
+      const pendingJob = await prisma.ingestionJob.findFirst({
+        where: { repoId, status: "pending" },
+        orderBy: { createdAt: "desc" }
       });
+      const ingestionJob =
+        pendingJob === null
+          ? await prisma.ingestionJob.create({
+              data: {
+                repoId,
+                status: "running",
+                startedAt: new Date(),
+                metadata: { isIncremental, stage: "fetching" }
+              }
+            })
+          : await prisma.ingestionJob.update({
+              where: { id: pendingJob.id },
+              data: {
+                status: "running",
+                startedAt: new Date(),
+                metadata: { isIncremental, stage: "fetching" }
+              }
+            });
       ingestionJobId = ingestionJob.id;
 
       const repository = await prisma.repository.findUniqueOrThrow({
@@ -200,25 +228,33 @@ export class IngestionService {
       const repoMetadata = await this.githubClient.getRepo(owner, name);
       logger.info({ repoId, step: "repo_metadata", itemCount: 1 }, "ingestion step complete");
       await updateProgress?.(20);
-      const commitCount = await this.upsertCommits(repoId, owner, name, since);
+      const commitCount = this.hasGitHubToken
+        ? await this.upsertCommits(repoId, owner, name, since)
+        : 0;
       logger.info(
         { repoId, step: "commits", itemCount: commitCount },
         "ingestion step complete"
       );
       await updateProgress?.(35);
-      const pullRequestCount = await this.upsertPullRequests(repoId, owner, name, since);
+      const pullRequestCount = this.hasGitHubToken
+        ? await this.upsertPullRequests(repoId, owner, name, since)
+        : 0;
       logger.info(
         { repoId, step: "pull_requests", itemCount: pullRequestCount },
         "ingestion step complete"
       );
       await updateProgress?.(50);
-      const issueCount = await this.upsertIssues(repoId, owner, name, since);
+      const issueCount = this.hasGitHubToken
+        ? await this.upsertIssues(repoId, owner, name, since)
+        : 0;
       logger.info(
         { repoId, step: "issues", itemCount: issueCount },
         "ingestion step complete"
       );
       await updateProgress?.(65);
-      const contributorCount = await this.upsertContributors(repoId, owner, name);
+      const contributorCount = this.hasGitHubToken
+        ? await this.upsertContributors(repoId, owner, name)
+        : 0;
       logger.info(
         { repoId, step: "contributors", itemCount: contributorCount },
         "ingestion step complete"
@@ -231,19 +267,22 @@ export class IngestionService {
       );
       await updateProgress?.(90);
 
-      const completedAt = new Date();
+      const fetchedAt = new Date();
 
       await prisma.repository.update({
         where: { id: repoId },
         data: {
-          status: "ready",
-          lastSyncedAt: completedAt,
+          status: fileCount === 0 ? "ready" : "indexing",
+          lastSyncedAt: fetchedAt,
           metadata: {
+            ...jsonRecord(repository.metadata),
             githubId: repoMetadata.id,
             fullName: repoMetadata.fullName,
             defaultBranch: repoMetadata.defaultBranch,
             private: repoMetadata.private,
-            description: repoMetadata.description
+            description: repoMetadata.description,
+            indexedFileCount: fileCount,
+            analyticsMode: this.hasGitHubToken ? "full" : "code-only"
           }
         }
       });
@@ -251,8 +290,13 @@ export class IngestionService {
       await prisma.ingestionJob.update({
         where: { id: ingestionJobId },
         data: {
-          status: "completed",
-          completedAt
+          status: fileCount === 0 ? "completed" : "running",
+          completedAt: fileCount === 0 ? fetchedAt : null,
+          metadata: {
+            isIncremental,
+            stage: fileCount === 0 ? "completed" : "indexing",
+            fileCount
+          }
         }
       });
 
@@ -260,7 +304,8 @@ export class IngestionService {
         invalidateCachePattern(`gitpulse:arch:${repoId}`),
         invalidateCachePattern(`gitpulse:contrib:${repoId}`),
         invalidateCachePattern(`gitpulse:busf:${repoId}`),
-        invalidateCachePattern(`gitpulse:stats:${repoId}`)
+        invalidateCachePattern(`gitpulse:stats:${repoId}`),
+        invalidateCachePattern("gitpulse:search:*")
       ]);
       await getContributorAnalysisQueue().add("analyze-contributors", { repoId });
       observeIngestion("completed", Date.now() - startedAt);
@@ -271,7 +316,7 @@ export class IngestionService {
           itemCount: fileCount,
           durationMs: Date.now() - startedAt
         },
-        "ingestion completed"
+        "repository fetched; indexing queued"
       );
     } catch (error: unknown) {
       const message = errorMessage(error);
@@ -293,6 +338,7 @@ export class IngestionService {
         });
       }
       observeIngestion("failed", Date.now() - startedAt);
+      throw error;
     }
   }
 
@@ -453,22 +499,31 @@ export class IngestionService {
     name: string,
     branch: string
   ): Promise<number> {
-    const tree = await this.githubClient.getFileTree(owner, name, branch);
-    let upserted = 0;
+    const archiveFiles = await this.githubClient.downloadRepositoryArchive(
+      owner,
+      name,
+      branch
+    );
+    const parseJobs: Array<{
+      name: string;
+      data: {
+        repoId: string;
+        fileId: string;
+        path: string;
+        language: string;
+      };
+    }> = [];
 
-    for (const file of tree) {
+    for (const file of archiveFiles) {
       if (
         shouldSkipPath(file.path) ||
-        (file.size !== null && file.size > MAX_FILE_BYTES)
+        file.size > MAX_FILE_BYTES ||
+        isBinary(file.content)
       ) {
         continue;
       }
 
-      const content = await this.githubClient.getFileContent(
-        owner,
-        name,
-        file.path
-      );
+      const content = file.content.toString("utf8");
       const language = detectLanguage(file.path);
       const codeFile = await prisma.codeFile.upsert({
         where: {
@@ -487,19 +542,29 @@ export class IngestionService {
         update: {
           language,
           content,
-          lastModified: new Date()
+          lastModified: new Date(),
+          indexedAt: null
         }
       });
 
-      await getFileParsingQueue().add("parse-file", {
-        repoId,
-        fileId: codeFile.id,
-        path: file.path,
-        language
+      parseJobs.push({
+        name: "parse-file",
+        data: {
+          repoId,
+          fileId: codeFile.id,
+          path: file.path,
+          language
+        }
       });
-      upserted += 1;
     }
 
-    return upserted;
+    if (parseJobs.length > 0) {
+      // Queue only after every current file has been marked unindexed. This
+      // prevents a fast worker from declaring the repository ready while the
+      // ingestion loop is still discovering later files.
+      await getFileParsingQueue().addBulk(parseJobs);
+    }
+
+    return parseJobs.length;
   }
 }
