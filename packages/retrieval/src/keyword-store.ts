@@ -32,9 +32,10 @@ interface KeywordDocument {
 export class KeywordStore {
   private readonly client: Client;
   private initialized = false;
+  private initialization: Promise<void> | null = null;
 
   public constructor(node = elasticsearchUrl) {
-    this.client = new Client({ node, requestTimeout: 1000 });
+    this.client = new Client({ node, requestTimeout: 10_000 });
   }
 
   public async initialize(): Promise<void> {
@@ -42,25 +43,32 @@ export class KeywordStore {
       return;
     }
 
-    const exists = await this.client.indices.exists({ index: indexName });
-    if (!exists) {
-      await this.client.indices.create({
-        index: indexName,
-        mappings: {
-          properties: {
-            fileId: { type: "keyword" },
-            repoId: { type: "keyword" },
-            chunkIndex: { type: "integer" },
-            content: { type: "text", analyzer: "english" },
-            filePath: { type: "keyword" },
-            language: { type: "keyword" },
-            functionName: { type: "keyword" }
+    this.initialization ??= (async () => {
+      const exists = await this.client.indices.exists({ index: indexName });
+      if (!exists) {
+        await this.client.indices.create({
+          index: indexName,
+          mappings: {
+            properties: {
+              fileId: { type: "keyword" },
+              repoId: { type: "keyword" },
+              chunkIndex: { type: "integer" },
+              content: { type: "text", analyzer: "english" },
+              filePath: { type: "keyword" },
+              language: { type: "keyword" },
+              functionName: { type: "keyword" }
+            }
           }
-        }
-      });
-    }
+        });
+      }
+    })();
 
-    this.initialized = true;
+    try {
+      await this.initialization;
+      this.initialized = true;
+    } finally {
+      this.initialization = null;
+    }
   }
 
   public async index(chunks: IndexedChunk[]): Promise<void> {

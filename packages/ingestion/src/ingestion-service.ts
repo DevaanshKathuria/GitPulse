@@ -33,8 +33,8 @@ let redis: Redis | null = null;
 const getRedis = (): Redis => {
   redis ??= new Redis({
     ...redisConnection,
-    enableOfflineQueue: false,
-    lazyConnect: true,
+    enableOfflineQueue: true,
+    lazyConnect: false,
     maxRetriesPerRequest: 1,
     retryStrategy: () => null
   });
