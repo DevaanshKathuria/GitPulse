@@ -14,3 +14,13 @@ export const getRedis = (): Redis => {
 
   return redis;
 };
+
+export const closeRedis = async (): Promise<void> => {
+  if (redis === null) {
+    return;
+  }
+
+  const connection = redis;
+  redis = null;
+  await connection.quit().catch(() => connection.disconnect());
+};

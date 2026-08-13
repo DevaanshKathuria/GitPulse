@@ -134,7 +134,7 @@ export class SearchEngine {
       searchRequestsTotal.inc({ strategy: params.strategy });
       searchLatencySeconds.observe({ strategy: params.strategy }, latencyMs / 1000);
     } catch {
-      // Metrics must never break search.
+      // Metrics are non-critical.
     }
     logger.info(
       {
@@ -235,6 +235,9 @@ export class SearchEngine {
   ): Promise<SearchResult[]> {
     if (results.length === 0) {
       return [];
+    }
+    if (huggingFaceApiKey.length === 0) {
+      return results;
     }
 
     try {

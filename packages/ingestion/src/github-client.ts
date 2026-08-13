@@ -1,11 +1,10 @@
 import { Octokit } from "@octokit/rest";
 import { gunzipSync } from "node:zlib";
 
-// Pause only when the current request exhausts the unauthenticated allowance.
-// Repository contents use one archive request, so reserving several calls
-// would unnecessarily stall otherwise viable public-repository ingestion.
 const RATE_LIMIT_FLOOR = 1;
 const MAX_RETRIES = 3;
+const MAX_COMMITS_WITH_FILE_HISTORY = 100;
+const COMMIT_DETAIL_CONCURRENCY = 8;
 
 export interface GitHubRepoMetadata {
   id: number;
@@ -139,22 +138,54 @@ export class GitHubClient {
     name: string,
     since?: Date
   ): Promise<GitHubCommit[]> {
-    const commits = await this.withRetry(() =>
-      this.octokit.paginate(this.octokit.rest.repos.listCommits, {
+    const response = await this.withRetry(() =>
+      this.octokit.rest.repos.listCommits({
         owner,
         repo: name,
         since: since?.toISOString(),
-        per_page: 100
+        per_page: MAX_COMMITS_WITH_FILE_HISTORY
       })
     );
+    const commits: GitHubCommit[] = [];
 
-    return commits.map((commit) => ({
-      sha: commit.sha,
-      message: commit.commit.message,
-      author: commit.author?.login ?? commit.commit.author?.name ?? "unknown",
-      timestamp: new Date(commit.commit.author?.date ?? commit.commit.committer?.date ?? Date.now()),
-      filesChanged: null
-    }));
+    for (
+      let start = 0;
+      start < response.data.length;
+      start += COMMIT_DETAIL_CONCURRENCY
+    ) {
+      const batch = response.data.slice(start, start + COMMIT_DETAIL_CONCURRENCY);
+      const details = await Promise.all(
+        batch.map((commit) =>
+          this.withRetry(() =>
+            this.octokit.rest.repos.getCommit({
+              owner,
+              repo: name,
+              ref: commit.sha
+            })
+          )
+        )
+      );
+
+      commits.push(
+        ...details.map((detail) => ({
+          sha: detail.data.sha,
+          message: detail.data.commit.message,
+          author:
+            detail.data.author?.login ??
+            detail.data.commit.author?.name ??
+            "unknown",
+          timestamp: new Date(
+            detail.data.commit.author?.date ??
+              detail.data.commit.committer?.date ??
+              Date.now()
+          ),
+          filesChanged:
+            detail.data.files?.map((file) => file.filename) ?? []
+        }))
+      );
+    }
+
+    return commits;
   }
 
   public async getPullRequests(
@@ -301,8 +332,7 @@ export class GitHubClient {
     owner: string,
     name: string
   ): Promise<GitHubContributorStats[]> {
-    // Contributor statistics is a computed, non-paginated endpoint. Passing it
-    // through Octokit's paginator can flatten the response incorrectly.
+    // This computed endpoint is not paginated.
     const response = await this.withRetry(() =>
       this.octokit.rest.repos.getContributorsStats({
         owner,

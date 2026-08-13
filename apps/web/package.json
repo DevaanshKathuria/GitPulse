@@ -7,8 +7,7 @@
     "build": "next build",
     "dev": "next dev",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo \"No web tests configured\""
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "autoprefixer": "^10.5.0",

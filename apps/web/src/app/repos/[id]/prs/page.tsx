@@ -23,10 +23,38 @@ export default function PullRequestsPage({ params }: { params: { id: string } })
   const [prs, setPrs] = useState<PullRequestSummary[] | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, PullRequestIntelligence | string>>({});
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void api.pullRequests(params.id).then((response) => setPrs(response.items));
+    let active = true;
+    void api
+      .pullRequests(params.id)
+      .then((response) => {
+        if (active) setPrs(response.items);
+      })
+      .catch((requestError: unknown) => {
+        if (active) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Unable to load pull requests"
+          );
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, [params.id]);
+
+  if (error !== null) {
+    return (
+      <div className="space-y-6">
+        <RepoTabs repoId={params.id} active="prs" />
+        <Card><CardContent className="text-sm text-red-300">{error}</CardContent></Card>
+      </div>
+    );
+  }
 
   if (prs === null) {
     return <Skeleton className="h-96" />;
@@ -43,11 +71,21 @@ export default function PullRequestsPage({ params }: { params: { id: string } })
       return;
     }
 
-    const response = await api.pullRequestIntelligence(params.id, pr.id);
-    setDetails((current) => ({
-      ...current,
-      [pr.id]: "metadata" in response ? response : response.message
-    }));
+    try {
+      const response = await api.pullRequestIntelligence(params.id, pr.id);
+      setDetails((current) => ({
+        ...current,
+        [pr.id]: "metadata" in response ? response : response.message
+      }));
+    } catch (requestError: unknown) {
+      setDetails((current) => ({
+        ...current,
+        [pr.id]:
+          requestError instanceof Error
+            ? requestError.message
+            : "Unable to load PR intelligence"
+      }));
+    }
   };
 
   return (
@@ -62,6 +100,9 @@ export default function PullRequestsPage({ params }: { params: { id: string } })
               </TR>
             </THead>
             <TBody>
+              {prs.length === 0 ? (
+                <TR><TD colSpan={6}>No pull requests were ingested for this repository.</TD></TR>
+              ) : null}
               {prs.map((pr) => (
                 <Fragment key={pr.id}>
                   <TR className="cursor-pointer hover:bg-slate-900" onClick={() => void toggle(pr)}>

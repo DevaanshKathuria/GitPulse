@@ -559,9 +559,7 @@ export class IngestionService {
     }
 
     if (parseJobs.length > 0) {
-      // Queue only after every current file has been marked unindexed. This
-      // prevents a fast worker from declaring the repository ready while the
-      // ingestion loop is still discovering later files.
+      // Avoid reporting the repository as ready before discovery finishes.
       await getFileParsingQueue().addBulk(parseJobs);
     }
 

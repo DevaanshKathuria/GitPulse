@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 [![CI](https://github.com/DevaanshKathuria/GitPulse/actions/workflows/ci.yml/badge.svg)](https://github.com/DevaanshKathuria/GitPulse/actions/workflows/ci.yml)
 
-GitPulse ingests any GitHub repository and gives you semantic code search, AST-powered architecture analysis, PR risk scoring, contributor ownership maps, and engineering analytics -- all built on a distributed async pipeline.
+GitPulse ingests any GitHub repository and provides semantic code search, AST-powered architecture analysis, PR risk scoring, contributor ownership maps, and engineering analytics through a distributed async pipeline.
 
 ![GitPulse semantic search returning results from a live indexed repository](docs/assets/gitpulse-search.jpg)
 
@@ -22,7 +22,7 @@ Most developer tools let you *browse* code. GitPulse lets you *understand* it.
 
 Point it at any GitHub repo and it:
 
-- **Finds code by meaning, not keywords.** Ask "where is JWT auth implemented?" and get the exact functions -- not a grep output.
+- **Finds code by meaning, not keywords.** Ask "where is JWT auth implemented?" and get the exact functions instead of a grep output.
 - **Maps your architecture automatically.** Generates a dependency graph of every file, detects circular dependencies, and flags over-coupled modules.
 - **Scores every PR for risk.** Analyses diffs to detect breaking changes, changed dependencies, and architectural impact before a PR is merged.
 - **Quantifies contributor ownership.** Shows who owns which subsystems, calculates bus factor per directory, and surfaces knowledge concentration risks.
@@ -31,33 +31,16 @@ Point it at any GitHub repo and it:
 
 ## Architecture overview
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         GitPulse Platform                       │
-│                                                                 │
-│  ┌──────────┐    ┌──────────────────────────────────────────┐  │
-│  │ Next.js  │───▶│              Express API                  │  │
-│  │  Web UI  │    │  /repos  /search  /architecture  /prs     │  │
-│  └──────────┘    └────────────────┬─────────────────────────┘  │
-│                                   │                             │
-│              ┌────────────────────▼───────────────────────┐    │
-│              │             BullMQ Queue Layer              │    │
-│              │  repo-ingestion │ file-parsing │ embedding  │    │
-│              │  pr-analysis    │ contributor-analysis      │    │
-│              └──┬──────────────┬──────────────┬───────────┘    │
-│                 │              │              │                 │
-│         ┌───────▼──┐  ┌───────▼──┐  ┌───────▼──┐            │
-│         │ Ingestion │  │   AST    │  │Embedding │            │
-│         │  Worker  │  │  Parser  │  │  Worker  │            │
-│         │(Octokit) │  │(ts-morph │  │(OpenAI + │            │
-│         │          │  │tree-sitter│  │ Qdrant)  │            │
-│         └───────┬──┘  └───────┬──┘  └───────┬──┘            │
-│                 │              │              │                 │
-│         ┌───────▼──────────────▼──────────────▼────────────┐  │
-│         │              Data Layer                            │  │
-│         │  PostgreSQL │ Redis │ Qdrant │ Elasticsearch       │  │
-│         └────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+  Web[Next.js web UI] --> API[Express API]
+  API --> Queue[BullMQ queues]
+  Queue --> Ingestion[Ingestion worker]
+  Queue --> Parser[AST parser]
+  Queue --> Embedding[Embedding worker]
+  Ingestion --> Data[(PostgreSQL, Redis, Qdrant, Elasticsearch)]
+  Parser --> Data
+  Embedding --> Data
 ```
 
 ---
@@ -91,9 +74,9 @@ Point it at any GitHub repo and it:
 
 Three retrieval strategies available per query:
 
-- **Vector search** -- embeds query with text-embedding-3-small, searches Qdrant by cosine similarity
-- **BM25** -- Elasticsearch keyword search over all indexed code
-- **Hybrid + reranking** -- Reciprocal Rank Fusion (RRF) merges both result sets, then a cross-encoder reranks the top 20 candidates
+- **Vector search:** embeds the query with text-embedding-3-small and searches Qdrant by cosine similarity
+- **BM25:** runs an Elasticsearch keyword search over all indexed code
+- **Hybrid + reranking:** uses Reciprocal Rank Fusion (RRF) to merge both result sets, then reranks the top 20 candidates with a cross-encoder
 
 Chunking is AST-aware: functions and classes become their own chunks, preserving semantic boundaries instead of slicing at arbitrary character limits.
 
@@ -151,7 +134,7 @@ For every PR:
 GET /api/v1/repos/:id/bus-factor
 ```
 
-- File ownership map (contributor with >50% of commits to a file owns it)
+- File ownership map from the latest 100 commits (a contributor with >50% of changes to a file owns it)
 - Bus factor per directory
 - Knowledge concentration risk: critical (1 owner), high (2 owners), medium (<=3 owners)
 - 12-week activity trend per contributor
@@ -161,9 +144,9 @@ GET /api/v1/repos/:id/bus-factor
 Repositories are ingested through a 4-stage queue pipeline:
 
 ```
-repo-ingestion → file-parsing → embedding-generation
-                              ↘ pr-analysis
-                              ↘ contributor-analysis
+repo-ingestion -> file-parsing -> embedding-generation
+                              -> pr-analysis
+                              -> contributor-analysis
 ```
 
 Repository source is downloaded as a single GitHub tarball instead of one API request per file, so public repositories can be indexed without exhausting GitHub's unauthenticated rate limit. A repository remains in `indexing` until every file has completed parsing and search indexing.
@@ -172,55 +155,33 @@ All jobs are: idempotent (safe to re-run), retry-safe (3 attempts, exponential b
 
 ---
 
-## Evaluation results
+## Measured retrieval evaluation
 
-Retrieval evaluation run against a 500-file TypeScript codebase with 20 manually curated query/expected-file pairs:
+Measured locally on August 13, 2026 after indexing this repository (122 files). The dataset contains 20 manually labeled developer-intent queries and uses exact repository-relative file paths as relevance judgments.
 
-| Strategy | Recall@5 | Recall@10 | MRR | nDCG@10 | Avg latency | p95 latency |
-|---|---|---|---|---|---|---|
-| BM25 only | 0.55 | 0.65 | 0.48 | 0.52 | 85ms | 140ms |
-| Vector only | 0.70 | 0.80 | 0.63 | 0.67 | 210ms | 380ms |
-| Hybrid + reranking | **0.85** | **0.90** | **0.79** | **0.82** | 340ms | 580ms |
+| Strategy | Recall@5 | Recall@10 | MRR | nDCG@10 | Mean latency | p95 latency |
+|---|---:|---:|---:|---:|---:|---:|
+| BM25 | 35.0% | 55.0% | 0.197 | 0.279 | 21ms | 19ms |
+| Vector | **95.0%** | **95.0%** | **0.749** | **0.798** | 631ms | 1034ms |
+| Hybrid (RRF) | 75.0% | 90.0% | 0.477 | 0.576 | 642ms | 1143ms |
 
-Hybrid retrieval improves Recall@5 by +54% over BM25 and +21% over vector-only. Full benchmark methodology in [`docs/benchmarks.md`](docs/benchmarks.md).
+The evaluator clears each query's cached embedding before vector and hybrid searches, so those latency figures include embedding generation. This is a small project-specific regression benchmark, not a general retrieval claim. The complete methodology, limitations, and per-query results are in [`docs/benchmarks.md`](docs/benchmarks.md).
 
 ---
 
 ## Project structure
 
-```
-gitpulse/
-├── apps/
-│   ├── api/                  # Express REST API + workers
-│   │   └── src/
-│   │       ├── routes/       # Repo, search, PR, contributor endpoints
-│   │       ├── services/     # PR intelligence, contributor analytics
-│   │       ├── workers/      # BullMQ worker entry points
-│   │       ├── lib/          # Cache, metrics, logger
-│   │       └── eval/         # Retrieval evaluation framework
-│   └── web/                  # Next.js 14 frontend
-│       └── src/app/
-│           ├── repos/        # Repo list + add repo
-│           ├── repos/[id]/
-│           │   ├── search/   # Semantic search UI
-│           │   ├── architecture/ # Dependency graph (react-flow)
-│           │   ├── prs/      # PR intelligence table
-│           │   └── contributors/ # Bus factor + analytics
-├── packages/
-│   ├── db/                   # Prisma schema + singleton client
-│   ├── queue/                # BullMQ queue definitions + WorkerBase
-│   ├── parser/               # AST parsing engine + dependency graph
-│   ├── retrieval/            # Chunker + embedder + hybrid search engine
-│   └── shared/               # Shared TypeScript types + constants
-├── docs/
-│   ├── architecture.md       # System design + data flow
-│   ├── ingestion-flow.md     # Ingestion sequence diagram
-│   ├── retrieval-pipeline.md # Chunking, fusion, reranking
-│   ├── benchmarks.md         # Evaluation results
-│   └── design-decisions.md   # Engineering tradeoffs
-├── docker-compose.yml        # All 6 services: postgres, redis, qdrant, es, api, web
-└── .github/workflows/ci.yml  # Typecheck, lint, test, docker build
-```
+| Path | Purpose |
+|---|---|
+| `apps/api` | Express REST API and BullMQ workers |
+| `apps/web` | Next.js frontend |
+| `packages/db` | Prisma schema and database client |
+| `packages/queue` | Queue definitions and worker base classes |
+| `packages/parser` | AST parsing and dependency graph generation |
+| `packages/retrieval` | Chunking, embeddings, and hybrid retrieval |
+| `packages/shared` | Shared TypeScript types and constants |
+| `docs` | Architecture, pipeline, benchmark, and design documentation |
+| `.github/workflows/ci.yml` | Typecheck, lint, and Docker build jobs |
 
 ---
 
@@ -319,22 +280,24 @@ Outputs a strategy comparison table and writes results to `docs/benchmarks.md`.
 
 Prometheus metrics available at `/metrics`:
 
-- `gitpulse_ingestion_jobs_total` -- ingestion job count by status
-- `gitpulse_ingestion_duration_seconds` -- ingestion duration histogram
-- `gitpulse_search_latency_seconds` -- search latency by strategy
+- `gitpulse_ingestion_jobs_total`: ingestion job count by status
+- `gitpulse_ingestion_duration_seconds`: ingestion duration histogram
+- `gitpulse_search_latency_seconds`: search latency by strategy
 - `gitpulse_cache_hits_total` / `gitpulse_cache_misses_total`
-- `gitpulse_queue_depth` -- live queue depth per queue
-- `gitpulse_worker_job_duration_seconds` -- worker job duration by queue
+- `gitpulse_queue_depth`: live queue depth per queue
+- `gitpulse_worker_job_duration_seconds`: worker job duration by queue
 
 ---
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) -- system design, component responsibilities, data flow
-- [Ingestion flow](docs/ingestion-flow.md) -- sequence diagram from repo add to indexed
-- [Retrieval pipeline](docs/retrieval-pipeline.md) -- chunking, RRF fusion, reranking explained
-- [Benchmarks](docs/benchmarks.md) -- evaluation methodology and results
-- [Design decisions](docs/design-decisions.md) -- engineering tradeoffs and rationale
+- [Architecture](docs/architecture.md): system design, component responsibilities, and data flow
+- [Ingestion flow](docs/ingestion-flow.md): sequence diagram from repository creation to indexing
+- [Retrieval pipeline](docs/retrieval-pipeline.md): chunking, RRF fusion, and reranking
+- [Benchmarks](docs/benchmarks.md): evaluation methodology and results
+- [OpenAPI specification](docs/openapi.yaml): machine-readable HTTP API contract
+- [Design decisions](docs/design-decisions.md): engineering tradeoffs and rationale
+- [Contributing](CONTRIBUTING.md): local workflow and change guidelines
 
 ---
 

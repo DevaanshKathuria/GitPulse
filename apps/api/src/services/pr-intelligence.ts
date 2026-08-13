@@ -211,7 +211,7 @@ export class PRIntelligenceService {
     for (const removed of removedExports) {
       const added = addedExports.find((candidate) => candidate.type === removed.type);
       if (added !== undefined && added.name !== removed.name) {
-        breakingChanges.push(`Renamed: ${removed.name} → ${added.name}`);
+        breakingChanges.push(`Renamed: ${removed.name} -> ${added.name}`);
       }
     }
 

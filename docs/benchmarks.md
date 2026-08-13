@@ -1,50 +1,109 @@
-# Retrieval Benchmarks
+# Retrieval Benchmark
 
-GitPulse includes a lightweight retrieval evaluation framework for comparing BM25, vector, and hybrid search behavior against a curated golden dataset. The current benchmark was run against a representative 500-file TypeScript codebase using 20 manually curated query/expected-file pairs. Each query describes a real developer intent, such as finding JWT verification, database connection setup, error middleware, webhook handling, queue job processing, API route definitions, tests, shared types, and utility logic.
+Measured on 2026-08-13T10:58:29.391Z against [DevaanshKathuria/GitPulse](https://github.com/DevaanshKathuria/GitPulse) at its then-current default branch.
 
-The benchmark treats a result as relevant when at least one expected file substring appears in a returned file path. This makes the evaluation portable across repositories while still checking whether the search engine returns the right subsystem. The dataset is intentionally broad rather than exhaustive: it measures whether each strategy can recover common engineering concepts across routing, infrastructure, configuration, testing, and domain code.
+Dataset: **GitPulse self-retrieval benchmark** (20 manually labeled developer-intent queries).
 
-## Metrics
+A result is relevant when its repository-relative path exactly matches a manually labeled expected file.
 
-- **Recall@5**: fraction of queries with at least one expected file in the top 5 results.
-- **Recall@10**: fraction of queries with at least one expected file in the top 10 results.
-- **MRR**: mean reciprocal rank of the first relevant result, using 0 when no relevant result appears in the top 10.
-- **nDCG@10**: normalized discounted cumulative gain at 10, rewarding relevant results that appear earlier in the ranking.
-- **Average latency**: mean end-to-end retrieval latency for the strategy.
-- **p95 latency**: 95th percentile end-to-end retrieval latency.
+Indexed corpus: **122 files**. Repository ID: `cmsq013p40000np01kjxh5aqv`.
 
-## Strategy Comparison
+## Results
 
-| Strategy | Recall@5 | Recall@10 | MRR | nDCG@10 | Avg latency | p95 latency |
-|---|---|---|---|---|---|---|
-| BM25 only | 0.55 | 0.65 | 0.48 | 0.52 | 85ms | 140ms |
-| Vector only | 0.70 | 0.80 | 0.63 | 0.67 | 210ms | 380ms |
-| Hybrid + reranking | **0.85** | **0.90** | **0.79** | **0.82** | 340ms | 580ms |
+| Strategy | Recall@5 | Recall@10 | MRR | nDCG@10 | Mean latency | p95 latency |
+|---|---:|---:|---:|---:|---:|---:|
+| BM25 | 35.0% | 55.0% | 0.197 | 0.279 | 21ms | 19ms |
+| Vector | 95.0% | 95.0% | 0.749 | 0.798 | 631ms | 1034ms |
+| Hybrid (RRF) | 75.0% | 90.0% | 0.477 | 0.576 | 642ms | 1143ms |
 
-Hybrid retrieval improves Recall@5 by +54% over BM25 and +21% over vector-only. BM25 remains the fastest strategy and is useful for exact symbol, package, and filename-heavy queries. Vector search performs better for conceptual queries where the user does not know the exact implementation terms. Hybrid search is the strongest default because it combines lexical precision with semantic recall and then reranks the best candidates.
+Latencies are end-to-end calls made sequentially from the evaluator to the local retrieval services. Before each vector or hybrid query, the evaluator removes that query's cached embedding so the semantic strategies both include embedding generation. These environment-specific measurements are not production load-test claims. Hybrid uses Reciprocal Rank Fusion; cross-encoder reranking is applied only when `HUGGINGFACE_API_KEY` is configured.
 
-## Latency Analysis
+## Reproduce
 
-| Strategy | p50 latency | p95 latency | p99 latency |
+```bash
+docker compose up -d --build
+pnpm eval -- --repoId cmsq013p40000np01kjxh5aqv
+```
+
+The evaluator refuses to run this dataset against a different repository, fails if a strategy returns no results for every query, and uses exact repository-relative paths for relevance judgments.
+
+## Per-query results
+
+### BM25
+
+| Query | First relevant rank | Results | Latency |
 |---|---:|---:|---:|
-| BM25 only | 70ms | 140ms | 190ms |
-| Vector only | 180ms | 380ms | 520ms |
-| Hybrid + reranking | 300ms | 580ms | 760ms |
+| download a GitHub repository as a tar archive | miss | 10 | 159ms |
+| ingest repository metadata commits pull requests and source files | 9 | 10 | 19ms |
+| verify a GitHub webhook signature | 1 | 10 | 12ms |
+| detect the programming language from a file extension | 3 | 10 | 15ms |
+| parse TypeScript functions classes imports and exports with ts-morph | 4 | 10 | 17ms |
+| build a file dependency graph and find circular imports | miss | 10 | 15ms |
+| split source code into AST-aware search chunks | miss | 10 | 16ms |
+| generate and cache OpenAI embeddings in batches | 1 | 10 | 12ms |
+| index code chunks for keyword and vector retrieval | miss | 10 | 16ms |
+| store and query source code in Elasticsearch with BM25 | miss | 10 | 12ms |
+| store embeddings and search vectors in Qdrant | miss | 10 | 10ms |
+| combine lexical and semantic results using reciprocal rank fusion | 10 | 10 | 15ms |
+| cache API responses with stale while revalidate | 3 | 10 | 13ms |
+| record Prometheus metrics for queues search and cache | 7 | 10 | 10ms |
+| validate and execute the semantic code search API endpoint | miss | 10 | 10ms |
+| repository API endpoints for architecture pull requests and contributors | 7 | 10 | 19ms |
+| score pull request risk and detect breaking exported symbols | 3 | 10 | 16ms |
+| calculate contributor ownership bus factor and concentration risk | 5 | 10 | 17ms |
+| configure BullMQ workers with retries and exponential backoff | miss | 10 | 14ms |
+| render ranked code search results in the repository UI | miss | 10 | 12ms |
 
-BM25 latency is dominated by Elasticsearch query execution and result shaping. Vector latency includes embedding the query, searching Qdrant, and normalizing payloads. Hybrid latency includes both BM25 and vector search, Reciprocal Rank Fusion, and a HuggingFace cross-encoder reranking pass over the top candidates. When the search cache is warm, repeated identical requests are significantly faster because GitPulse can return the serialized result directly from Redis.
+### Vector
 
-## Observations
+| Query | First relevant rank | Results | Latency |
+|---|---:|---:|---:|
+| download a GitHub repository as a tar archive | 1 | 10 | 972ms |
+| ingest repository metadata commits pull requests and source files | 2 | 10 | 1326ms |
+| verify a GitHub webhook signature | 1 | 10 | 557ms |
+| detect the programming language from a file extension | 1 | 10 | 504ms |
+| parse TypeScript functions classes imports and exports with ts-morph | 1 | 10 | 806ms |
+| build a file dependency graph and find circular imports | 1 | 10 | 519ms |
+| split source code into AST-aware search chunks | 1 | 10 | 633ms |
+| generate and cache OpenAI embeddings in batches | 1 | 10 | 475ms |
+| index code chunks for keyword and vector retrieval | miss | 10 | 740ms |
+| store and query source code in Elasticsearch with BM25 | 1 | 10 | 462ms |
+| store embeddings and search vectors in Qdrant | 1 | 10 | 497ms |
+| combine lexical and semantic results using reciprocal rank fusion | 1 | 10 | 1034ms |
+| cache API responses with stale while revalidate | 2 | 10 | 611ms |
+| record Prometheus metrics for queues search and cache | 1 | 10 | 444ms |
+| validate and execute the semantic code search API endpoint | 5 | 10 | 420ms |
+| repository API endpoints for architecture pull requests and contributors | 3 | 10 | 446ms |
+| score pull request risk and detect breaking exported symbols | 1 | 10 | 621ms |
+| calculate contributor ownership bus factor and concentration risk | 1 | 10 | 596ms |
+| configure BullMQ workers with retries and exponential backoff | 5 | 10 | 512ms |
+| render ranked code search results in the repository UI | 4 | 10 | 436ms |
 
-Use **BM25** for latency-sensitive paths, exact string lookups, known filenames, known package names, and simple operational dashboards where sub-200ms responses matter more than semantic recall.
+### Hybrid (RRF)
 
-Use **vector search** when users describe behavior in natural language and may not know the exact function, symbol, or module name. It is a good middle ground for exploratory codebase navigation.
-
-Use **hybrid + reranking** for high-precision developer workflows: onboarding, code review, architectural investigation, incident debugging, and questions where returning the wrong file is more expensive than a few hundred milliseconds of extra latency.
+| Query | First relevant rank | Results | Latency |
+|---|---:|---:|---:|
+| download a GitHub repository as a tar archive | 10 | 10 | 1143ms |
+| ingest repository metadata commits pull requests and source files | 4 | 10 | 453ms |
+| verify a GitHub webhook signature | 1 | 10 | 449ms |
+| detect the programming language from a file extension | 1 | 10 | 688ms |
+| parse TypeScript functions classes imports and exports with ts-morph | 1 | 10 | 480ms |
+| build a file dependency graph and find circular imports | 5 | 10 | 544ms |
+| split source code into AST-aware search chunks | 6 | 10 | 446ms |
+| generate and cache OpenAI embeddings in batches | 1 | 10 | 1105ms |
+| index code chunks for keyword and vector retrieval | miss | 10 | 1001ms |
+| store and query source code in Elasticsearch with BM25 | 5 | 10 | 455ms |
+| store embeddings and search vectors in Qdrant | 5 | 10 | 453ms |
+| combine lexical and semantic results using reciprocal rank fusion | 4 | 10 | 449ms |
+| cache API responses with stale while revalidate | 1 | 10 | 486ms |
+| record Prometheus metrics for queues search and cache | 2 | 10 | 575ms |
+| validate and execute the semantic code search API endpoint | miss | 10 | 454ms |
+| repository API endpoints for architecture pull requests and contributors | 3 | 10 | 450ms |
+| score pull request risk and detect breaking exported symbols | 1 | 10 | 450ms |
+| calculate contributor ownership bus factor and concentration risk | 1 | 10 | 1038ms |
+| configure BullMQ workers with retries and exponential backoff | 5 | 10 | 1262ms |
+| render ranked code search results in the repository UI | 7 | 10 | 461ms |
 
 ## Limitations
 
-The golden dataset is intentionally small and portable, so it should be treated as a regression signal rather than a complete information retrieval benchmark. Results will vary by repository size, language mix, naming conventions, and how much code has been successfully parsed into AST-aware chunks.
-
-The embedding model has token limits, so very large functions are split into overlapping windows. That improves recall but can occasionally separate context that a human would prefer to read together. Cold starts also affect latency because OpenAI, Qdrant, Elasticsearch, HuggingFace, and Redis may all need to establish network connections before the first request completes.
-
-Language support is currently strongest for TypeScript and JavaScript. Python and Go have Tree-sitter extraction for core declarations and imports, while other languages fall back to sliding-window chunking or are skipped by the parser depending on ingestion metadata.
+This is a small, project-specific regression benchmark, not a general claim about retrieval quality across arbitrary repositories. The labels were selected manually from known GitPulse subsystems. Results can change as the codebase, indexed commit, external embedding model, or local hardware changes.
