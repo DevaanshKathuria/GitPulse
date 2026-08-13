@@ -10,9 +10,19 @@
 
 GitPulse ingests any GitHub repository and provides semantic code search, AST-powered architecture analysis, PR risk scoring, contributor ownership maps, and engineering analytics through a distributed async pipeline.
 
+## Screenshots
+
+### Semantic code search
+
 ![GitPulse semantic search returning results from a live indexed repository](docs/assets/gitpulse-search.jpg)
 
-The screenshot above is from the Docker Compose stack indexing this repository and executing a real BM25 query.
+The search results come from the Docker Compose stack indexing this repository and executing a real BM25 query.
+
+### Repository architecture
+
+![GitPulse dependency graph for the indexed repository](docs/assets/gitpulse-architecture.jpg)
+
+The architecture view renders file-level dependencies with React Flow and summarizes graph health, including edge counts, circular dependencies, and unused files.
 
 ---
 
