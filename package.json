@@ -9,7 +9,9 @@
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",
-    "typecheck": "turbo run typecheck",
+    "typecheck": "turbo run typecheck && tsc -p tests/tsconfig.json",
+    "pretest": "pnpm --filter @gitpulse/db exec prisma generate --schema prisma/schema.prisma",
+    "test": "tsx --test tests/**/*.test.ts",
     "eval": "pnpm --filter @gitpulse/api exec tsx src/eval/run-eval.ts"
   },
   "ts-node": {
@@ -18,7 +20,9 @@
     "experimentalSpecifierResolution": "node"
   },
   "devDependencies": {
+    "@types/node": "^22.10.2",
     "ts-node": "^10.9.2",
+    "tsx": "^4.19.2",
     "turbo": "^2.3.3",
     "typescript": "^5.7.2"
   }

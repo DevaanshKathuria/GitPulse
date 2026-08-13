@@ -27,6 +27,7 @@ Run the same checks as CI:
 ```bash
 pnpm lint
 pnpm typecheck
+pnpm test
 pnpm build
 ```
 
