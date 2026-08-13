@@ -132,9 +132,20 @@ export class ContributorIntelligenceService {
     const byDirectory: BusFactorResult["byDirectory"] = {};
     for (const [directory, files] of directoryFiles.entries()) {
       const owners = directoryOwners.get(directory) ?? new Map<string, number>();
-      const busFactor = [...owners.values()].filter(
-        (ownedFileCount) => ownedFileCount / files.length > 0.3
-      ).length;
+      const contributionCounts = [...owners.values()].sort(
+        (left, right) => right - left
+      );
+      let coveredFiles = 0;
+      let busFactor = 0;
+
+      for (const ownedFileCount of contributionCounts) {
+        coveredFiles += ownedFileCount;
+        busFactor += 1;
+        if (coveredFiles / files.length > 0.5) {
+          break;
+        }
+      }
+
       byDirectory[directory] = {
         busFactor,
         owners: [...owners.keys()]

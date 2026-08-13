@@ -40,7 +40,7 @@ flowchart LR
 
 1. The web app calls `POST /api/v1/repos` with a GitHub URL.
 2. The API validates the URL, creates a `Repository`, creates a pending `IngestionJob`, and enqueues `RepoIngestionJob`.
-3. `IngestionWorker` fetches repo metadata, commits, PRs, issues, contributors, and files from GitHub.
+3. `IngestionWorker` fetches repository analytics through the GitHub API when a token is configured and downloads source files in one repository tarball. Keyless public-repository ingestion runs in code-only mode.
 4. Code files are upserted into PostgreSQL and each file enqueues a `FileParsingJob`.
 5. `ParsingWorker` extracts AST nodes and dependency edges, then enqueues an `EmbeddingJob`.
 6. `EmbeddingWorker` chunks and indexes the file into Qdrant and Elasticsearch.

@@ -16,6 +16,6 @@ Vector search is good for intent, but code search often depends on exact identif
 
 AST-aware chunks preserve function and class boundaries, which improves result readability and makes line metadata useful. The tradeoff is parser complexity and partial language coverage, so GitPulse keeps a sliding-window fallback for unsupported or malformed files.
 
-## Why ts-morph For TypeScript Parsing
+## Why ts-morph And Tree-sitter For Parsing
 
-`ts-morph` wraps the TypeScript compiler API with a friendlier object model. It is a practical choice for extracting functions, classes, imports, exports, and route patterns from TypeScript and JavaScript without hand-writing a fragile parser.
+`ts-morph` exposes the TypeScript compiler model through a practical API, which gives TypeScript and JavaScript parsing accurate functions, classes, imports, exports, call relationships, and Express route discovery. Lightweight Tree-sitter parsers cover Python and Go declarations and imports. Files in other languages still flow through sliding-window chunking rather than being excluded from search.

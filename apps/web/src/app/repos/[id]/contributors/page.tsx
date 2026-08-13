@@ -18,12 +18,42 @@ const riskTone = (risk: string): "red" | "orange" | "yellow" | "green" => {
 export default function ContributorsPage({ params }: { params: { id: string } }) {
   const [contributors, setContributors] = useState<Contributor[] | null>(null);
   const [busFactor, setBusFactor] = useState<BusFactor | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void api.contributors(params.id).then(setContributors);
-    void api.busFactor(params.id).then((response) => {
-      if ("overall" in response) setBusFactor(response);
-    });
+    let active = true;
+    void api
+      .contributors(params.id)
+      .then((response) => {
+        if (active) setContributors(response);
+      })
+      .catch((requestError: unknown) => {
+        if (active) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Unable to load contributors"
+          );
+        }
+      });
+    void api
+      .busFactor(params.id)
+      .then((response) => {
+        if (active && "overall" in response) setBusFactor(response);
+      })
+      .catch((requestError: unknown) => {
+        if (active) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Unable to load bus-factor analysis"
+          );
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, [params.id]);
 
   const directoryRows = useMemo(() => {
@@ -34,6 +64,15 @@ export default function ContributorsPage({ params }: { params: { id: string } })
       risk: busFactor.risks.find((item) => item.directory === directory)?.risk ?? "healthy"
     }));
   }, [busFactor]);
+
+  if (error !== null) {
+    return (
+      <div className="space-y-6">
+        <RepoTabs repoId={params.id} active="contributors" />
+        <Card><CardContent className="text-sm text-red-300">{error}</CardContent></Card>
+      </div>
+    );
+  }
 
   if (contributors === null) {
     return <Skeleton className="h-96" />;
@@ -50,6 +89,9 @@ export default function ContributorsPage({ params }: { params: { id: string } })
           <Table>
             <THead><TR><TH>Login</TH><TH>Commits</TH><TH>Lines Added</TH><TH>Lines Removed</TH><TH>Files Owned</TH></TR></THead>
             <TBody>
+              {contributors.length === 0 ? (
+                <TR><TD colSpan={5}>Contributor analytics require a GitHub token and a fresh repository sync.</TD></TR>
+              ) : null}
               {contributors.map((contributor) => (
                 <TR key={contributor.login}>
                   <TD>{contributor.login}</TD>

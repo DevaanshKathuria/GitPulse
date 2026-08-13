@@ -1,0 +1,384 @@
+openapi: 3.1.0
+info:
+  title: GitPulse API
+  version: 1.0.0
+  description: API for repository ingestion, code retrieval, architecture analysis, PR intelligence, and contributor analytics.
+servers:
+  - url: http://localhost:3001
+    description: Local Docker or development server
+tags:
+  - name: Repositories
+  - name: Retrieval
+  - name: Intelligence
+  - name: Operations
+paths:
+  /health:
+    get:
+      tags: [Operations]
+      summary: Check API process health
+      responses:
+        "200":
+          description: Service health
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string }
+  /metrics:
+    get:
+      tags: [Operations]
+      summary: Return Prometheus metrics
+      responses:
+        "200":
+          description: Prometheus text exposition
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/v1/repos:
+    get:
+      tags: [Repositories]
+      summary: List indexed repositories
+      responses:
+        "200":
+          description: Repository list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Repository" }
+    post:
+      tags: [Repositories]
+      summary: Add a GitHub repository for asynchronous indexing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [githubUrl]
+              properties:
+                githubUrl:
+                  type: string
+                  format: uri
+                  examples: ["https://github.com/owner/repository"]
+      responses:
+        "201":
+          description: Repository created and indexing queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RepositoryMutation" }
+        "200":
+          description: Existing canonical repository reused
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RepositoryMutation" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /api/v1/repos/{repoId}:
+    parameters:
+      - $ref: "#/components/parameters/RepoId"
+    get:
+      tags: [Repositories]
+      summary: Get repository details and aggregate counts
+      responses:
+        "200":
+          description: Repository details
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Repository" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/repos/{repoId}/sync:
+    parameters:
+      - $ref: "#/components/parameters/RepoId"
+    post:
+      tags: [Repositories]
+      summary: Queue an incremental repository sync
+      responses:
+        "202":
+          description: Sync queued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: queued }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/search:
+    post:
+      tags: [Retrieval]
+      summary: Search indexed source code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SearchRequest" }
+      responses:
+        "200":
+          description: Ranked code results
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /api/v1/repos/{repoId}/architecture:
+    parameters:
+      - $ref: "#/components/parameters/RepoId"
+    get:
+      tags: [Intelligence]
+      summary: Build the repository dependency graph and architecture metrics
+      responses:
+        "200":
+          description: Dependency graph
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [nodes, edges, circularDependencies, unusedFiles, stats]
+                properties:
+                  nodes: { type: array, items: { type: object } }
+                  edges: { type: array, items: { type: object } }
+                  circularDependencies: { type: array, items: { type: array } }
+                  unusedFiles: { type: array, items: { type: string } }
+                  stats: { type: object }
+  /api/v1/repos/{repoId}/prs:
+    parameters:
+      - $ref: "#/components/parameters/RepoId"
+      - in: query
+        name: page
+        schema: { type: integer, minimum: 1, default: 1 }
+      - in: query
+        name: limit
+        schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    get:
+      tags: [Intelligence]
+      summary: List pull requests ordered by risk
+      responses:
+        "200":
+          description: Paginated pull request summaries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [page, limit, items]
+                properties:
+                  page: { type: integer }
+                  limit: { type: integer }
+                  items: { type: array, items: { $ref: "#/components/schemas/PullRequest" } }
+  /api/v1/repos/{repoId}/prs/{prId}/intelligence:
+    parameters:
+      - $ref: "#/components/parameters/RepoId"
+      - in: path
+        name: prId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Intelligence]
+      summary: Get or queue detailed pull request analysis
+      responses:
+        "200":
+          description: Completed analysis
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PullRequest" }
+        "202":
+          description: Analysis queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueuedJob" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/repos/{repoId}/contributors:
+    parameters:
+      - $ref: "#/components/parameters/RepoId"
+    get:
+      tags: [Intelligence]
+      summary: List contributor activity and owned-file counts
+      responses:
+        "200":
+          description: Contributor summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Contributor" }
+  /api/v1/repos/{repoId}/bus-factor:
+    parameters:
+      - $ref: "#/components/parameters/RepoId"
+    get:
+      tags: [Intelligence]
+      summary: Get or queue ownership concentration analysis
+      responses:
+        "200":
+          description: Bus factor by top-level directory
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BusFactor" }
+        "202":
+          description: Analysis queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueuedJob" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/repos/{repoId}/contributors/{login}/activity:
+    parameters:
+      - $ref: "#/components/parameters/RepoId"
+      - in: path
+        name: login
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Intelligence]
+      summary: Return a contributor's 12-week commit trend
+      responses:
+        "200":
+          description: Weekly activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [week, commits]
+                  properties:
+                    week: { type: string, examples: [2026-W33] }
+                    commits: { type: integer, minimum: 0 }
+  /webhooks/github:
+    post:
+      tags: [Operations]
+      summary: Receive a signed GitHub webhook event
+      parameters:
+        - in: header
+          name: x-github-event
+          required: true
+          schema: { type: string }
+        - in: header
+          name: x-hub-signature-256
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: Event accepted }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401":
+          description: Invalid webhook signature
+components:
+  parameters:
+    RepoId:
+      in: path
+      name: repoId
+      required: true
+      schema: { type: string }
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    RepositoryMutation:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string }
+        status: { type: string }
+        reused: { type: boolean }
+    Repository:
+      type: object
+      required: [id, githubUrl, owner, name, status]
+      properties:
+        id: { type: string }
+        githubUrl: { type: string, format: uri }
+        owner: { type: string }
+        name: { type: string }
+        status: { type: string, enum: [pending, indexing, ready, failed] }
+        lastSyncedAt: { type: [string, "null"], format: date-time }
+        commitCount: { type: integer }
+        prCount: { type: integer }
+        issueCount: { type: integer }
+        fileCount: { type: integer }
+    SearchRequest:
+      type: object
+      required: [query, repoId]
+      properties:
+        query: { type: string, minLength: 3 }
+        repoId: { type: string }
+        strategy: { type: string, enum: [bm25, vector, hybrid], default: hybrid }
+        topK: { type: integer, minimum: 1, maximum: 20, default: 10 }
+        filters:
+          type: object
+          properties:
+            language: { type: string }
+            filePattern: { type: string }
+    SearchResponse:
+      type: object
+      required: [results, strategy, latencyMs, cached]
+      properties:
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/SearchResult" }
+        strategy: { type: string, enum: [bm25, vector, hybrid] }
+        latencyMs: { type: integer, minimum: 0 }
+        cached: { type: boolean }
+    SearchResult:
+      type: object
+      required: [chunkId, fileId, filePath, language, content, score, strategy]
+      properties:
+        chunkId: { type: string }
+        fileId: { type: string }
+        filePath: { type: string }
+        language: { type: string }
+        functionName: { type: string }
+        content: { type: string }
+        score: { type: number }
+        startLine: { type: integer }
+        endLine: { type: integer }
+        strategy: { type: string, enum: [bm25, vector, hybrid] }
+    PullRequest:
+      type: object
+      required: [id, number, title, author, status]
+      properties:
+        id: { type: string }
+        number: { type: integer }
+        title: { type: string }
+        author: { type: string }
+        status: { type: string }
+        summary: { type: [string, "null"] }
+        riskScore: { type: [number, "null"], minimum: 0, maximum: 100 }
+        breakingChanges: { type: array, items: {} }
+        metadata: { type: [object, "null"], additionalProperties: true }
+    Contributor:
+      type: object
+      required: [login, commitCount, linesAdded, linesRemoved, ownedFilesCount]
+      properties:
+        login: { type: string }
+        commitCount: { type: integer }
+        linesAdded: { type: integer }
+        linesRemoved: { type: integer }
+        ownedFilesCount: { type: integer }
+    BusFactor:
+      type: object
+      required: [overall, byDirectory, risks]
+      properties:
+        overall: { type: integer, minimum: 0 }
+        byDirectory: { type: object, additionalProperties: { type: object } }
+        risks: { type: array, items: { type: object } }
+    QueuedJob:
+      type: object
+      required: [message, jobId]
+      properties:
+        message: { type: string }
+        jobId: { type: [string, number, "null"] }

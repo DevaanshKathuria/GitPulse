@@ -29,7 +29,7 @@ This gives useful weight to items that rank well in either retrieval system whil
 
 ## Reranking
 
-The top fused candidates are sent to the HuggingFace cross-encoder reranker. If that request fails, GitPulse falls back to RRF scores so search remains available.
+When `HUGGINGFACE_API_KEY` is configured, the top fused candidates are sent to the HuggingFace cross-encoder reranker. Without that optional key, or if the request fails, GitPulse returns the RRF ordering so search remains available.
 
 ## Cache Layer
 

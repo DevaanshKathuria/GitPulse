@@ -19,7 +19,7 @@ sequenceDiagram
   API->>DB: Create Repository and IngestionJob
   API->>IngestionQueue: Enqueue RepoIngestionJob
   IngestionQueue->>IngestionWorker: Process job
-  IngestionWorker->>GitHubAPI: Fetch commits, PRs, issues, contributors, files
+  IngestionWorker->>GitHubAPI: Fetch optional analytics + one source tarball
   GitHubAPI-->>IngestionWorker: Repository data
   IngestionWorker->>DB: Upsert records and CodeFiles
 

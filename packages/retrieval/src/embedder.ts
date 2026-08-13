@@ -83,7 +83,7 @@ export class Embedder {
           continue;
         }
       } catch {
-        // Cache misses due to Redis availability should not block embedding.
+        // Redis is optional.
       }
 
       pending.push({ index, chunk, cacheKey });
@@ -97,7 +97,7 @@ export class Embedder {
       try {
         embeddingBatchesTotal.inc();
       } catch {
-        // Metrics must never break embedding.
+        // Metrics are non-critical.
       }
 
       if (embeddings === null) {
@@ -122,7 +122,7 @@ export class Embedder {
             embeddingCacheTtlSeconds
           );
         } catch {
-          // Cache writes are best-effort.
+          // Redis is optional.
         }
       }
     }
