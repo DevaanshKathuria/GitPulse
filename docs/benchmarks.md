@@ -16,7 +16,9 @@ Indexed corpus: **122 files**. Repository ID: `cmsq013p40000np01kjxh5aqv`.
 | Vector | 95.0% | 95.0% | 0.749 | 0.798 | 631ms | 1034ms |
 | Hybrid (RRF) | 75.0% | 90.0% | 0.477 | 0.576 | 642ms | 1143ms |
 
-Latencies are end-to-end calls made sequentially from the evaluator to the local retrieval services. Before each vector or hybrid query, the evaluator removes that query's cached embedding so the semantic strategies both include embedding generation. These environment-specific measurements are not production load-test claims. Hybrid uses Reciprocal Rank Fusion; cross-encoder reranking is applied only when `HUGGINGFACE_API_KEY` is configured.
+Pure vector search produced the strongest retrieval quality on this corpus. BM25's weaker rankings reduced hybrid quality during Reciprocal Rank Fusion, indicating that lexical matches added noise for several developer-intent queries in this dataset.
+
+Latencies are end-to-end calls made sequentially from the evaluator to the local retrieval services. Before each vector or hybrid query, the evaluator removes that query's cached embedding so the semantic strategies both include embedding generation. Warm-cache latency was not measured. BM25's mean is higher than its p95 because one 159ms request raised the mean while the other 19 requests completed in 19ms or less. These environment-specific measurements are not production load-test claims. Cross-encoder reranking is applied only when `HUGGINGFACE_API_KEY` is configured.
 
 ## Reproduce
 

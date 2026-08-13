@@ -165,7 +165,9 @@ Measured locally on August 13, 2026 after indexing this repository (122 files). 
 | Vector | **95.0%** | **95.0%** | **0.749** | **0.798** | 631ms | 1034ms |
 | Hybrid (RRF) | 75.0% | 90.0% | 0.477 | 0.576 | 642ms | 1143ms |
 
-The evaluator clears each query's cached embedding before vector and hybrid searches, so those latency figures include embedding generation. This is a small project-specific regression benchmark, not a general retrieval claim. The complete methodology, limitations, and per-query results are in [`docs/benchmarks.md`](docs/benchmarks.md).
+Pure vector search outperformed hybrid retrieval on this benchmark. The weaker BM25 rankings introduced noise during RRF fusion for these developer-intent queries, so vector search was the strongest strategy for this corpus.
+
+The evaluator clears each query's cached embedding before vector and hybrid searches, so those latency figures include embedding generation. Warm-cache latency was not measured. The BM25 mean exceeds its p95 because one 159ms request raised the mean while the other 19 requests completed in 19ms or less. This is a small project-specific regression benchmark, not a general retrieval claim. The complete methodology, limitations, and per-query results are in [`docs/benchmarks.md`](docs/benchmarks.md).
 
 ---
 
