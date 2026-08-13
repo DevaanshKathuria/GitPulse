@@ -180,8 +180,9 @@ The evaluator clears each query's cached embedding before vector and hybrid sear
 | `packages/parser` | AST parsing and dependency graph generation |
 | `packages/retrieval` | Chunking, embeddings, and hybrid retrieval |
 | `packages/shared` | Shared TypeScript types and constants |
+| `tests` | Unit tests for ingestion, parsing, retrieval, and API services |
 | `docs` | Architecture, pipeline, benchmark, and design documentation |
-| `.github/workflows/ci.yml` | Typecheck, lint, and Docker build jobs |
+| `.github/workflows/ci.yml` | Typecheck, lint, test, and Docker build jobs |
 
 ---
 
@@ -267,7 +268,17 @@ Once the services are healthy, open [http://localhost:3000](http://localhost:300
 
 ---
 
-## Running the evaluation
+## Testing and evaluation
+
+Run the unit tests with:
+
+```bash
+pnpm test
+```
+
+The test suite covers TAR archive parsing, dependency cycle detection, AST-aware chunking, and contributor bus-factor calculations.
+
+### Retrieval evaluation
 
 ```bash
 # Index a repo first, then run against its repoId
