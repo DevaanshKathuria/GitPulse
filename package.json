@@ -10,7 +10,7 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck && tsc -p tests/tsconfig.json",
-    "pretest": "pnpm --filter @gitpulse/db exec prisma generate --schema prisma/schema.prisma",
+    "pretest": "pnpm --filter @gitpulse/db build",
     "test": "tsx --test tests/**/*.test.ts",
     "eval": "pnpm --filter @gitpulse/api exec tsx src/eval/run-eval.ts"
   },
