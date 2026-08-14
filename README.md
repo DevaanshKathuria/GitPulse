@@ -66,9 +66,9 @@ flowchart TD
 | Keyword search | Elasticsearch 8 (BM25) |
 | Database | PostgreSQL 16 + Prisma ORM |
 | AST parsing | ts-morph (TypeScript), Tree-sitter (Python, Go) |
-| Embeddings | OpenAI text-embedding-3-small |
+| Embeddings | OpenAI-compatible API (OpenAI or local Ollama) |
 | Reranking | HuggingFace cross-encoder/ms-marco-MiniLM-L-6-v2 |
-| LLM | OpenAI GPT-4o (PR summaries) |
+| LLM | OpenAI-compatible API (OpenAI or local Ollama) |
 | Cache | Redis (ioredis) with stale-while-revalidate |
 | Metrics | Prometheus + prom-client |
 | Logging | pino (structured JSON) |
@@ -321,6 +321,7 @@ Prometheus metrics available at `/metrics`:
 - [OpenAPI specification](docs/openapi.yaml): machine-readable HTTP API contract
 - [Design decisions](docs/design-decisions.md): engineering tradeoffs and rationale
 - [Contributing](CONTRIBUTING.md): local workflow and change guidelines
+- [Free deployment](docs/deployment.md): Always Free ARM deployment with HTTPS and local models
 
 ---
 

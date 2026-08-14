@@ -9,6 +9,9 @@ const logger = pino({ name: "gitpulse-retrieval" });
 const embeddingCacheTtlSeconds = 7 * 24 * 60 * 60;
 const embeddingBatchSize = 50;
 const maxRetries = 3;
+const embeddingBaseUrl = process.env.EMBEDDING_BASE_URL?.trim() || undefined;
+const embeddingModel =
+  process.env.EMBEDDING_MODEL?.trim() || "text-embedding-3-small";
 const embeddingBatchesTotal =
   (register.getSingleMetric("gitpulse_embedding_batches_total") as
     | Counter<string>
@@ -40,7 +43,9 @@ const parseCachedEmbedding = (cached: string | null): number[] | null => {
 export class Embedder {
   private readonly apiKey: string;
 
-  public constructor(apiKey = process.env.OPENAI_API_KEY ?? "") {
+  public constructor(
+    apiKey = process.env.EMBEDDING_API_KEY ?? process.env.OPENAI_API_KEY ?? ""
+  ) {
     this.apiKey = apiKey;
   }
 
@@ -63,7 +68,7 @@ export class Embedder {
 
   public async embedChunks(chunks: Chunk[]): Promise<EmbeddedChunk[]> {
     if (this.apiKey.length === 0) {
-      logger.error("embedding skipped because OPENAI_API_KEY is not configured");
+      logger.error("embedding skipped because no embedding API key is configured");
       return chunks.map((chunk) => ({
         ...chunk,
         embedding: null
@@ -135,16 +140,19 @@ export class Embedder {
 
   private async embedBatchWithRetry(inputs: string[]): Promise<number[][] | null> {
     if (this.apiKey.length === 0) {
-      logger.error("embedding skipped because OPENAI_API_KEY is not configured");
+      logger.error("embedding skipped because no embedding API key is configured");
       return null;
     }
 
-    const openai = new OpenAI({ apiKey: this.apiKey });
+    const openai = new OpenAI({
+      apiKey: this.apiKey,
+      baseURL: embeddingBaseUrl
+    });
 
     for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
       try {
         const response = await openai.embeddings.create({
-          model: "text-embedding-3-small",
+          model: embeddingModel,
           input: inputs
         });
 

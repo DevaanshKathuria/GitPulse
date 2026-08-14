@@ -2,7 +2,11 @@ import { QdrantClient, type Schemas } from "@qdrant/js-client-rest";
 import type { ChunkPayload, StoreFilters } from "./types.js";
 
 const collectionName = "code-chunks";
-const vectorSize = 1536;
+const configuredVectorSize = Number(process.env.EMBEDDING_DIMENSIONS ?? "1536");
+const vectorSize =
+  Number.isInteger(configuredVectorSize) && configuredVectorSize > 0
+    ? configuredVectorSize
+    : 1536;
 
 export interface VectorPoint {
   id: string;

@@ -110,6 +110,8 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3001
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:3001
       NODE_ENV: production
