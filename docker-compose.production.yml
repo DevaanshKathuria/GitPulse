@@ -1,12 +1,13 @@
+name: gitpulse
+
 services:
   postgres:
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_DB: gitpulse
       POSTGRES_USER: gitpulse
-      POSTGRES_PASSWORD: gitpulse
-    ports:
-      - "5432:5432"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -17,8 +18,10 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -27,8 +30,7 @@ services:
 
   qdrant:
     image: qdrant/qdrant:v1.19.0
-    ports:
-      - "6333:6333"
+    restart: unless-stopped
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
@@ -40,12 +42,11 @@ services:
 
   elasticsearch:
     image: elasticsearch:8.11.0
+    restart: unless-stopped
     environment:
       discovery.type: single-node
-      ES_JAVA_OPTS: -Xms512m -Xmx512m
+      ES_JAVA_OPTS: -Xms768m -Xmx768m
       xpack.security.enabled: "false"
-    ports:
-      - "9200:9200"
     volumes:
       - es_data:/usr/share/elasticsearch/data
     healthcheck:
@@ -53,6 +54,35 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
+
+  ollama:
+    image: ollama/ollama:0.32.11
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  ollama-embedding-model:
+    image: ollama/ollama:0.32.11
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    command: ["pull", "mxbai-embed-large"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  ollama-chat-model:
+    image: ollama/ollama:0.32.11
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    command: ["pull", "qwen2.5-coder:3b"]
+    depends_on:
+      ollama-embedding-model:
+        condition: service_completed_successfully
 
   db-init:
     build:
@@ -66,7 +96,7 @@ services:
       - --schema
       - packages/db/prisma/schema.prisma
     environment:
-      DATABASE_URL: postgresql://gitpulse:gitpulse@postgres:5432/gitpulse
+      DATABASE_URL: postgresql://gitpulse:${POSTGRES_PASSWORD}@postgres:5432/gitpulse
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,18 +105,25 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    env_file:
-      - .env
+    restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://gitpulse:gitpulse@postgres:5432/gitpulse
+      DATABASE_URL: postgresql://gitpulse:${POSTGRES_PASSWORD}@postgres:5432/gitpulse
       REDIS_URL: redis://redis:6379
       QDRANT_URL: http://qdrant:6333
       ELASTICSEARCH_URL: http://elasticsearch:9200
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      HUGGINGFACE_API_KEY: ${HUGGINGFACE_API_KEY:-}
+      EMBEDDING_API_KEY: ollama
+      EMBEDDING_BASE_URL: http://ollama:11434/v1
+      EMBEDDING_MODEL: mxbai-embed-large
+      EMBEDDING_DIMENSIONS: 1024
+      LLM_API_KEY: ollama
+      LLM_BASE_URL: http://ollama:11434/v1
+      LLM_MODEL: qwen2.5-coder:3b
       PORT: 3001
       NODE_ENV: production
-      WEB_URL: http://localhost:3000
-    ports:
-      - "3001:3001"
+      WEB_URL: https://${GITPULSE_HOST}
     depends_on:
       db-init:
         condition: service_completed_successfully
@@ -96,6 +133,10 @@ services:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
+      ollama-embedding-model:
+        condition: service_completed_successfully
+      ollama-chat-model:
+        condition: service_completed_successfully
     healthcheck:
       test:
         - CMD
@@ -111,17 +152,38 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:3001
+        NEXT_PUBLIC_API_URL: ""
+    restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:3001
       NODE_ENV: production
-    ports:
-      - "3000:3000"
     depends_on:
       api:
         condition: service_healthy
 
+  caddy:
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    environment:
+      GITPULSE_HOST: ${GITPULSE_HOST:?Set GITPULSE_HOST in .env.production}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+
 volumes:
   postgres_data:
+  redis_data:
   qdrant_data:
   es_data:
+  ollama_data:
+  caddy_data:
+  caddy_config:

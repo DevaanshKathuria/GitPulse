@@ -118,10 +118,11 @@ const executeEvaluation = async (
   const strategies = parseStrategies();
   if (
     strategies.some((strategy) => strategy !== "bm25") &&
+    !process.env.EMBEDDING_API_KEY?.trim() &&
     !process.env.OPENAI_API_KEY?.trim()
   ) {
     throw new Error(
-      "OPENAI_API_KEY is required to evaluate vector or hybrid retrieval; use --strategies bm25 for a keyless run"
+      "EMBEDDING_API_KEY or OPENAI_API_KEY is required to evaluate vector or hybrid retrieval; use --strategies bm25 for a keyless run"
     );
   }
 

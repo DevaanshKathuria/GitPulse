@@ -3,6 +3,7 @@ node_modules
 .turbo
 dist
 .env
+.env.production
 *.log
 *.tsbuildinfo
 coverage

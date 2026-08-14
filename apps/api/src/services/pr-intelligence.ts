@@ -57,9 +57,15 @@ export const extractChangedFiles = (diff: string): string[] => {
 
 export class PRIntelligenceService {
   private readonly apiKey: string;
+  private readonly baseUrl: string | undefined;
+  private readonly model: string;
 
-  public constructor(apiKey = process.env.OPENAI_API_KEY ?? "") {
+  public constructor(
+    apiKey = process.env.LLM_API_KEY ?? process.env.OPENAI_API_KEY ?? ""
+  ) {
     this.apiKey = apiKey;
+    this.baseUrl = process.env.LLM_BASE_URL?.trim() || undefined;
+    this.model = process.env.LLM_MODEL?.trim() || "gpt-4o";
   }
 
   public async summarizePR(pr: PullRequest): Promise<string> {
@@ -68,9 +74,12 @@ export class PRIntelligenceService {
         return "Summary unavailable.";
       }
 
-      const openai = new OpenAI({ apiKey: this.apiKey });
+      const openai = new OpenAI({
+        apiKey: this.apiKey,
+        baseURL: this.baseUrl
+      });
       const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: this.model,
         messages: [
           {
             role: "system",
