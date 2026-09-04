@@ -147,7 +147,28 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   return (await response.json()) as T;
 };
 
+const requestText = async (path: string): Promise<string> => {
+  let response: Response;
+
+  try {
+    response = await fetch(`${baseUrl}${path}`, { cache: "no-store" });
+  } catch {
+    throw new Error(
+      "Unable to reach the GitPulse API. Check that it is running and allows connections from this page."
+    );
+  }
+
+  if (!response.ok) {
+    throw new Error(`API request failed (${response.status}).`);
+  }
+
+  return response.text();
+};
+
+export const rawMetricsUrl = `${baseUrl}/metrics`;
+
 export const api = {
+  metrics: () => requestText("/metrics"),
   listRepos: () => request<Repository[]>("/api/v1/repos"),
   getRepo: (repoId: string) => request<Repository>(`/api/v1/repos/${repoId}`),
   createRepo: (githubUrl: string) =>

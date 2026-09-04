@@ -8,11 +8,6 @@ export const metadata = {
   description: "Repository intelligence dashboard"
 };
 
-const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001").replace(
-  /\/$/,
-  ""
-);
-
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
@@ -27,9 +22,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 <Link href="/repos" className="hover:text-slate-100">
                   Repositories
                 </Link>
-                <a href={`${apiUrl}/metrics`} className="hover:text-slate-100">
+                <Link href="/metrics" className="hover:text-slate-100">
                   Metrics
-                </a>
+                </Link>
               </div>
             </nav>
           </header>

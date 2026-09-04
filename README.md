@@ -301,7 +301,7 @@ Outputs a strategy comparison table and writes results to `docs/benchmarks.md`.
 
 ## Observability
 
-Prometheus metrics available at `/metrics`:
+A visual metrics dashboard is available in the web app at `/metrics`. Prometheus-compatible raw metrics remain available from the API at `/metrics`:
 
 - `gitpulse_ingestion_jobs_total`: ingestion job count by status
 - `gitpulse_ingestion_duration_seconds`: ingestion duration histogram
