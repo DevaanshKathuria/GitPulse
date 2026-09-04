@@ -4,5 +4,5 @@ export const CacheKeys = {
   busFactor: (repoId: string) => `gitpulse:busf:${repoId}`,
   search: (queryHash: string) => `gitpulse:search:${queryHash}`,
   embedding: (contentHash: string) => `gitpulse:emb:${contentHash}`,
-  repoStats: (repoId: string) => `gitpulse:stats:${repoId}`
+  repoStats: (repoId: string) => `gitpulse:stats:v2:${repoId}`
 } as const;

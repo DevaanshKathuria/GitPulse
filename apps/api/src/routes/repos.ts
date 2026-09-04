@@ -10,6 +10,7 @@ import { z } from "zod";
 import { AppError } from "../errors.js";
 import { cache } from "../lib/cache.js";
 import { CacheKeys } from "../lib/cache-keys.js";
+import { publicRepositorySelect } from "../lib/repository-response.js";
 import { ContributorIntelligenceService } from "../services/contributor-intelligence.js";
 
 export const reposRouter = Router();
@@ -180,7 +181,8 @@ reposRouter.get(
   async (_request: Request, response: Response): Promise<void> => {
     const repositories = await prisma.repository.findMany({
       orderBy: { createdAt: "desc" },
-      include: {
+      select: {
+        ...publicRepositorySelect,
         ingestionJobs: {
           orderBy: { createdAt: "desc" },
           take: 1
@@ -189,10 +191,9 @@ reposRouter.get(
     });
 
     response.status(200).json(
-      repositories.map((repository) => ({
+      repositories.map(({ ingestionJobs, ...repository }) => ({
         ...repository,
-        latestIngestionJob: repository.ingestionJobs[0] ?? null,
-        ingestionJobs: undefined
+        latestIngestionJob: ingestionJobs[0] ?? null
       }))
     );
   }
@@ -406,7 +407,8 @@ reposRouter.get(
 
     const repository = await prisma.repository.findUnique({
       where: { id: repoId },
-      include: {
+      select: {
+        ...publicRepositorySelect,
         ingestionJobs: {
           orderBy: { createdAt: "desc" },
           take: 1
@@ -426,15 +428,14 @@ reposRouter.get(
       throw new AppError("Repository not found", 404);
     }
 
+    const { ingestionJobs, _count, ...publicRepository } = repository;
     const body = {
-      ...repository,
-      commitCount: repository._count.commits,
-      prCount: repository._count.pullRequests,
-      issueCount: repository._count.issues,
-      fileCount: repository._count.codeFiles,
-      latestIngestionJob: repository.ingestionJobs[0] ?? null,
-      ingestionJobs: undefined,
-      _count: undefined
+      ...publicRepository,
+      commitCount: _count.commits,
+      prCount: _count.pullRequests,
+      issueCount: _count.issues,
+      fileCount: _count.codeFiles,
+      latestIngestionJob: ingestionJobs[0] ?? null
     };
 
     await cache.set(cacheKey, body, {
