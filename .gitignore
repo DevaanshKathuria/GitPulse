@@ -2,8 +2,10 @@ node_modules
 .next
 .turbo
 dist
-.env
-.env.production
+.DS_Store
+/output/
+.env*
+!.env.example
 *.log
 *.tsbuildinfo
 coverage

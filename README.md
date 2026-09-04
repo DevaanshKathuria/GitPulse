@@ -321,7 +321,6 @@ Prometheus metrics available at `/metrics`:
 - [OpenAPI specification](docs/openapi.yaml): machine-readable HTTP API contract
 - [Design decisions](docs/design-decisions.md): engineering tradeoffs and rationale
 - [Contributing](CONTRIBUTING.md): local workflow and change guidelines
-- [Free deployment](docs/deployment.md): Always Free ARM deployment with HTTPS and local models
 
 ---
 
