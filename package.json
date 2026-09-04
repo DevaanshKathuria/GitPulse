@@ -19,11 +19,17 @@
     "experimentalResolver": true,
     "experimentalSpecifierResolution": "node"
   },
+  "pnpm": {
+    "overrides": {
+      "@prisma/config>deepmerge-ts": "8.0.0",
+      "qs": "6.16.0"
+    }
+  },
   "devDependencies": {
-    "@types/node": "^22.10.2",
+    "@types/node": "^22.20.1",
     "ts-node": "^10.9.2",
-    "tsx": "^4.19.2",
-    "turbo": "^2.3.3",
-    "typescript": "^5.7.2"
+    "tsx": "^4.23.13",
+    "turbo": "^2.10.12",
+    "typescript": "^5.9.3"
   }
 }

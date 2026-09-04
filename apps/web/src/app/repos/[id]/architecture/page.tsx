@@ -1,7 +1,7 @@
 "use client";
 
 import ReactFlow, { Background, Controls, type Edge, type Node } from "reactflow";
-import { useEffect, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import { api, type ArchitectureGraph } from "../../../../lib/api";
 import { RepoTabs } from "../../../../components/repo-tabs";
 import { Badge } from "../../../../components/ui/badge";
@@ -10,12 +10,13 @@ import { Skeleton } from "../../../../components/ui/skeleton";
 
 const filename = (path: string): string => path.split("/").pop() ?? path;
 
-export default function ArchitecturePage({ params }: { params: { id: string } }) {
+export default function ArchitecturePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const [graph, setGraph] = useState<ArchitectureGraph | null>(null);
 
   useEffect(() => {
-    void api.architecture(params.id).then(setGraph);
-  }, [params.id]);
+    void api.architecture(id).then(setGraph);
+  }, [id]);
 
   const circularFiles = useMemo(() => new Set(graph?.circularDependencies.flat() ?? []), [graph]);
   const unusedFiles = useMemo(() => new Set(graph?.unusedFiles ?? []), [graph]);
@@ -58,7 +59,7 @@ export default function ArchitecturePage({ params }: { params: { id: string } })
 
   return (
     <div className="space-y-6">
-      <RepoTabs repoId={params.id} active="architecture" />
+      <RepoTabs repoId={id} active="architecture" />
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
         <Card className="h-[650px] overflow-hidden">
           <ReactFlow nodes={flow.nodes} edges={flow.edges} fitView>

@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, useState } from "react";
+import { type ChangeEvent, use, useState } from "react";
 import { api, type SearchResult, type SearchStrategy } from "../../../../lib/api";
 import { RepoTabs } from "../../../../components/repo-tabs";
 import { Badge } from "../../../../components/ui/badge";
@@ -11,7 +11,8 @@ import { Progress } from "../../../../components/ui/progress";
 
 const languages = ["", "typescript", "javascript", "python", "go", "ruby", "rust", "java"];
 
-export default function SearchPage({ params }: { params: { id: string } }) {
+export default function SearchPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const [query, setQuery] = useState("");
   const [strategy, setStrategy] = useState<SearchStrategy>("hybrid");
   const [language, setLanguage] = useState("");
@@ -27,7 +28,7 @@ export default function SearchPage({ params }: { params: { id: string } }) {
     try {
       const response = await api.search({
         query,
-        repoId: params.id,
+        repoId: id,
         strategy,
         filters: language.length > 0 ? { language } : undefined,
         topK: 10
@@ -43,7 +44,7 @@ export default function SearchPage({ params }: { params: { id: string } }) {
 
   return (
     <div className="space-y-6">
-      <RepoTabs repoId={params.id} active="search" />
+      <RepoTabs repoId={id} active="search" />
       <Card>
         <CardHeader>
           <CardTitle>Semantic Search</CardTitle>

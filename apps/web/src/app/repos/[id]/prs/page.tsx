@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, use, useEffect, useState } from "react";
 import {
   api,
   type PullRequestIntelligence,
@@ -19,7 +19,8 @@ const riskTone = (score: number | null): "green" | "yellow" | "red" | "gray" => 
   return "red";
 };
 
-export default function PullRequestsPage({ params }: { params: { id: string } }) {
+export default function PullRequestsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const [prs, setPrs] = useState<PullRequestSummary[] | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, PullRequestIntelligence | string>>({});
@@ -28,7 +29,7 @@ export default function PullRequestsPage({ params }: { params: { id: string } })
   useEffect(() => {
     let active = true;
     void api
-      .pullRequests(params.id)
+      .pullRequests(id)
       .then((response) => {
         if (active) setPrs(response.items);
       })
@@ -45,12 +46,12 @@ export default function PullRequestsPage({ params }: { params: { id: string } })
     return () => {
       active = false;
     };
-  }, [params.id]);
+  }, [id]);
 
   if (error !== null) {
     return (
       <div className="space-y-6">
-        <RepoTabs repoId={params.id} active="prs" />
+        <RepoTabs repoId={id} active="prs" />
         <Card><CardContent className="text-sm text-red-300">{error}</CardContent></Card>
       </div>
     );
@@ -72,7 +73,7 @@ export default function PullRequestsPage({ params }: { params: { id: string } })
     }
 
     try {
-      const response = await api.pullRequestIntelligence(params.id, pr.id);
+      const response = await api.pullRequestIntelligence(id, pr.id);
       setDetails((current) => ({
         ...current,
         [pr.id]: "metadata" in response ? response : response.message
@@ -90,7 +91,7 @@ export default function PullRequestsPage({ params }: { params: { id: string } })
 
   return (
     <div className="space-y-6">
-      <RepoTabs repoId={params.id} active="prs" />
+      <RepoTabs repoId={id} active="prs" />
       <Card>
         <CardContent className="overflow-x-auto">
           <Table>

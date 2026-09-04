@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import { api, type BusFactor, type Contributor } from "../../../../lib/api";
 import { RepoTabs } from "../../../../components/repo-tabs";
 import { Badge } from "../../../../components/ui/badge";
@@ -15,7 +15,8 @@ const riskTone = (risk: string): "red" | "orange" | "yellow" | "green" => {
   return "green";
 };
 
-export default function ContributorsPage({ params }: { params: { id: string } }) {
+export default function ContributorsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const [contributors, setContributors] = useState<Contributor[] | null>(null);
   const [busFactor, setBusFactor] = useState<BusFactor | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +24,7 @@ export default function ContributorsPage({ params }: { params: { id: string } })
   useEffect(() => {
     let active = true;
     void api
-      .contributors(params.id)
+      .contributors(id)
       .then((response) => {
         if (active) setContributors(response);
       })
@@ -37,7 +38,7 @@ export default function ContributorsPage({ params }: { params: { id: string } })
         }
       });
     void api
-      .busFactor(params.id)
+      .busFactor(id)
       .then((response) => {
         if (active && "overall" in response) setBusFactor(response);
       })
@@ -54,7 +55,7 @@ export default function ContributorsPage({ params }: { params: { id: string } })
     return () => {
       active = false;
     };
-  }, [params.id]);
+  }, [id]);
 
   const directoryRows = useMemo(() => {
     if (busFactor === null) return [];
@@ -68,7 +69,7 @@ export default function ContributorsPage({ params }: { params: { id: string } })
   if (error !== null) {
     return (
       <div className="space-y-6">
-        <RepoTabs repoId={params.id} active="contributors" />
+        <RepoTabs repoId={id} active="contributors" />
         <Card><CardContent className="text-sm text-red-300">{error}</CardContent></Card>
       </div>
     );
@@ -82,7 +83,7 @@ export default function ContributorsPage({ params }: { params: { id: string } })
 
   return (
     <div className="space-y-6">
-      <RepoTabs repoId={params.id} active="contributors" />
+      <RepoTabs repoId={id} active="contributors" />
       <Card>
         <CardHeader><CardTitle>Contributors</CardTitle></CardHeader>
         <CardContent className="overflow-x-auto">

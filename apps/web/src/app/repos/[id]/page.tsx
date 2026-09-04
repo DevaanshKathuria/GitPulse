@@ -1,22 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { use, useEffect, useState } from "react";
 import { api, type Contributor, type Repository } from "../../../lib/api";
 import { RepoTabs } from "../../../components/repo-tabs";
 import { StatusBadge } from "../../../components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Skeleton } from "../../../components/ui/skeleton";
 
-export default function RepoDashboardPage({ params }: { params: { id: string } }) {
+export default function RepoDashboardPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const [repo, setRepo] = useState<Repository | null>(null);
   const [contributors, setContributors] = useState<Contributor[]>([]);
 
   useEffect(() => {
     void Promise.all([
-      api.getRepo(params.id).then(setRepo),
-      api.contributors(params.id).then(setContributors).catch(() => setContributors([]))
+      api.getRepo(id).then(setRepo),
+      api.contributors(id).then(setContributors).catch(() => setContributors([]))
     ]);
-  }, [params.id]);
+  }, [id]);
 
   if (repo === null) {
     return <Skeleton className="h-80" />;
@@ -63,7 +64,7 @@ export default function RepoDashboardPage({ params }: { params: { id: string } }
         </CardContent>
       </Card>
 
-      <RepoTabs repoId={params.id} active="" />
+      <RepoTabs repoId={id} active="" />
     </div>
   );
 }
