@@ -59,12 +59,16 @@ export default function ReposPage() {
     setSubmitting(true);
 
     try {
-      await api.createRepo(githubUrl);
+      await api.createRepo(githubUrl.trim());
       setGithubUrl("");
       setOpen(false);
       await load();
-    } catch {
-      setError("Unable to add that repository. Check the URL and try again.");
+    } catch (caughtError: unknown) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to add that repository. Check the URL and try again."
+      );
     } finally {
       setSubmitting(false);
     }
@@ -77,10 +81,17 @@ export default function ReposPage() {
           <h1 className="text-2xl font-semibold">Repositories</h1>
           <p className="mt-1 text-sm text-slate-400">Indexed codebases and ingestion state.</p>
         </div>
-        <Button onClick={() => setOpen(true)}>Add Repository</Button>
+        <Button
+          onClick={() => {
+            setError(null);
+            setOpen(true);
+          }}
+        >
+          Add Repository
+        </Button>
       </div>
 
-      {error !== null && <Badge tone="red">{error}</Badge>}
+      {error !== null && !open && <Badge tone="red">{error}</Badge>}
 
       {loading ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -128,27 +139,51 @@ export default function ReposPage() {
       )}
 
       {open ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4">
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="add-repository-title"
+        >
           <Card className="w-full max-w-lg">
             <CardHeader>
-              <CardTitle>Add Repository</CardTitle>
+              <CardTitle id="add-repository-title">Add Repository</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <Input
-                placeholder="https://github.com/owner/repo"
-                value={githubUrl}
-                onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                  setGithubUrl(event.target.value)
-                }
-              />
-              <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => setOpen(false)}>
-                  Cancel
-                </Button>
-                <Button disabled={githubUrl.length < 12 || submitting} onClick={() => void submit()}>
-                  {submitting ? "Adding..." : "Start ingestion"}
-                </Button>
-              </div>
+            <CardContent>
+              <form
+                className="space-y-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void submit();
+                }}
+              >
+                <Input
+                  placeholder="https://github.com/owner/repo"
+                  value={githubUrl}
+                  aria-invalid={error !== null}
+                  aria-describedby={error === null ? undefined : "add-repository-error"}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                    setGithubUrl(event.target.value)
+                  }
+                />
+                {error !== null ? (
+                  <Badge
+                    id="add-repository-error"
+                    className="whitespace-normal rounded-md px-3 py-2"
+                    tone="red"
+                  >
+                    {error}
+                  </Badge>
+                ) : null}
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={githubUrl.trim().length < 12 || submitting}>
+                    {submitting ? "Adding..." : "Start ingestion"}
+                  </Button>
+                </div>
+              </form>
             </CardContent>
           </Card>
         </div>

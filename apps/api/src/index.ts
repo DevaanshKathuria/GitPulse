@@ -7,6 +7,7 @@ import express, {
 } from "express";
 import type { IncomingMessage, Server } from "node:http";
 import { AppError } from "./errors.js";
+import { isOriginAllowed, parseAllowedOrigins } from "./lib/cors.js";
 import { logger } from "./lib/logger.js";
 import { register } from "./lib/metrics.js";
 import { reposRouter } from "./routes/repos.js";
@@ -17,17 +18,18 @@ import { shutdownWorkers, startWorkers } from "./workers.js";
 const app = express();
 const requestedPort = Number(process.env.PORT ?? 3001);
 const maxPortAttempts = 10;
-const allowedOrigins = new Set(
+const allowedOrigins = parseAllowedOrigins(
   (process.env.WEB_URL ?? "http://localhost:3000,http://127.0.0.1:3000")
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter((origin) => origin.length > 0)
 );
+const allowLoopbackOrigins = process.env.ALLOW_LOCAL_WEB_ORIGINS === "true";
 
 app.use((request: Request, response: Response, next: NextFunction) => {
   const origin = request.header("origin");
 
-  if (origin !== undefined && allowedOrigins.has(origin)) {
+  if (
+    origin !== undefined &&
+    isOriginAllowed(origin, allowedOrigins, allowLoopbackOrigins)
+  ) {
     response.setHeader("Access-Control-Allow-Origin", origin);
     response.setHeader("Vary", "Origin");
     response.setHeader("Access-Control-Allow-Headers", "Content-Type");

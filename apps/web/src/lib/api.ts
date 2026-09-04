@@ -112,17 +112,36 @@ const baseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001").rep
 );
 
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      ...init?.headers
-    },
-    cache: "no-store"
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers: {
+        "content-type": "application/json",
+        ...init?.headers
+      },
+      cache: "no-store"
+    });
+  } catch {
+    throw new Error(
+      "Unable to reach the GitPulse API. Check that it is running and allows connections from this page."
+    );
+  }
 
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status}`);
+    let message = `API request failed (${response.status}).`;
+
+    try {
+      const body = (await response.json()) as { error?: unknown };
+      if (typeof body.error === "string" && body.error.length > 0) {
+        message = body.error;
+      }
+    } catch {
+      // The status is still useful when an upstream response is not JSON.
+    }
+
+    throw new Error(message);
   }
 
   return (await response.json()) as T;
